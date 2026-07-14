@@ -1,1 +1,1 @@
-# rsseeker.github.io
+# RSSeeker.github.io
