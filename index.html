@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RS_Seeker - 个人主页</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RS_Seeker · 个人主页</title>
   <style>
     * {
       margin: 0;
@@ -16,69 +16,148 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      background: #0e0e11;
       font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      color: #e5e5e5;
+      overflow: hidden;
+      transition: background 0.6s ease, color 0.6s ease;
+    }
+
+    /* ===== 浅色主题 ===== */
+    body.light {
+      background: #f4f5f7;
+      color: #1a1a2e;
+    }
+
+    /* ===== 主题切换按钮 ===== */
+    .theme-toggle {
+      position: fixed;
+      top: 18px;
+      right: 22px;
+      z-index: 10;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
       color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s;
+    }
+    .theme-toggle:hover {
+      transform: rotate(20deg) scale(1.1);
+    }
+    body.light .theme-toggle {
+      background: rgba(0,0,0,0.05);
+      color: #333;
+      border-color: rgba(0,0,0,0.1);
+    }
+
+    /* ===== 3D 场景 ===== */
+    .scene {
+      perspective: 1200px;
+      z-index: 1;
     }
 
     .card {
-      background: rgba(255, 255, 255, 0.08);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      position: relative;
+      width: 440px;
+      max-width: 92%;
+      padding: 52px 44px 40px;
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 24px;
-      padding: 48px 40px 40px;
       text-align: center;
-      max-width: 420px;
-      width: 90%;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      animation: fadeIn 0.8s ease-out;
+      transform-style: preserve-3d;
+      transition: transform 0.15s ease-out, box-shadow 0.3s;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.45);
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(30px); }
-      to   { opacity: 1; transform: translateY(0); }
+    body.light .card {
+      background: rgba(255,255,255,0.85);
+      border-color: rgba(0,0,0,0.08);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.08);
     }
 
+    /* ===== 头像 ===== */
     .avatar {
       width: 120px;
       height: 120px;
       border-radius: 50%;
       object-fit: cover;
-      border: 3px solid rgba(255, 255, 255, 0.3);
-      margin-bottom: 20px;
-      transition: transform 0.3s;
+      border: 2px solid rgba(255,255,255,0.2);
+      margin-bottom: 22px;
+      animation: float 5s ease-in-out infinite;
+      transform: translateZ(40px);
+    }
+    body.light .avatar {
+      border-color: rgba(0,0,0,0.15);
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0) translateZ(40px); }
+      50% { transform: translateY(-8px) translateZ(40px); }
     }
 
-    .avatar:hover {
-      transform: scale(1.08);
-    }
-
+    /* ===== 文字 ===== */
     .name {
-      font-size: 28px;
+      font-size: 30px;
       font-weight: 700;
-      margin-bottom: 6px;
       letter-spacing: 1px;
+      margin-bottom: 6px;
+      transform: translateZ(30px);
     }
 
     .tagline {
       font-size: 14px;
-      color: rgba(255, 255, 255, 0.6);
-      margin-bottom: 24px;
-      letter-spacing: 0.5px;
+      color: #888;
+      letter-spacing: 1px;
+      margin-bottom: 26px;
+      transform: translateZ(20px);
+    }
+    body.light .tagline {
+      color: #666;
     }
 
     .bio {
       font-size: 15px;
-      line-height: 1.8;
-      color: rgba(255, 255, 255, 0.85);
-      margin-bottom: 32px;
-      padding: 0 8px;
+      line-height: 1.9;
+      color: #ccc;
+      margin-bottom: 34px;
+      padding: 0 6px;
+      min-height: 7em;
+      transform: translateZ(15px);
+    }
+    body.light .bio {
+      color: #444;
     }
 
+    .bio p {
+      margin: 4px 0;
+      min-height: 1.4em;
+    }
+
+    /* 光标 */
+    .bio::after {
+      content: "|";
+      animation: blink 1s step-end infinite;
+      color: #888;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* ===== 按钮 ===== */
     .links {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
+      opacity: 0;
+      transform: translateY(10px);
     }
 
     .links a {
@@ -86,21 +165,27 @@
       align-items: center;
       justify-content: center;
       gap: 10px;
-      padding: 12px 20px;
+      padding: 13px 22px;
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #fff;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #e5e5e5;
       text-decoration: none;
       font-size: 15px;
       font-weight: 500;
-      transition: all 0.25s;
+      transition: all 0.3s ease;
+      transform: translateZ(10px);
+    }
+    body.light .links a {
+      background: rgba(0,0,0,0.04);
+      border-color: rgba(0,0,0,0.1);
+      color: #333;
     }
 
     .links a:hover {
-      background: rgba(255, 255, 255, 0.2);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      background: rgba(255,255,255,0.1);
+      transform: translateY(-3px) translateZ(14px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
     }
 
     .links a svg {
@@ -110,44 +195,57 @@
       flex-shrink: 0;
     }
 
+    /* ===== 页脚 ===== */
     .footer {
-      margin-top: 32px;
+      margin-top: 36px;
       font-size: 12px;
-      color: rgba(255, 255, 255, 0.35);
+      color: #555;
+      letter-spacing: 0.5px;
+    }
+    body.light .footer {
+      color: #999;
     }
   </style>
 </head>
 <body>
-  <div class="card">
+
+<!-- 主题切换 -->
+<button class="theme-toggle" id="themeBtn" title="切换主题">🌙</button>
+
+<!-- 3D 场景 -->
+<div class="scene" id="scene">
+  <div class="card" id="card">
     <img
       class="avatar"
       src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEXNbZqVnn1vgXvsTqKVZkuEYQ4iiwHjQAC0yMAAkvwuVanYLoFCvHqtT0E.png"
-      alt="BQACAgUAAyEGAASHRsPbAAEXNbZqVnn1vgXvsTqKVZkuEYQ4iiwHjQAC0yMAAkvwuVanYLoFCvHqtT0E.png"
+      alt="avatar"
     >
 
     <div class="name">RS_Seeker</div>
     <div class="tagline">探索者 · 开发者</div>
 
-    <div class="bio">
-      你好！我是 RS_Seeker，一名热爱技术与开源的开发者。
-    </div>
+    <div class="bio" id="typewriter"></div>
 
-    <div class="links">
+    <div class="links" id="links">
       <a href="https://github.com/RSSeeker" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-          0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15
-          -.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87
-          .51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
-          0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82
-          2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65
-          3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013
-          8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <svg viewBox="0 0 16 16">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+            0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15
+            -.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87
+            .51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
+            0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82
+            2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65
+            3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013
+            8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
         GitHub
       </a>
 
       <a href="mailto:2159973598@qq.com">
-        <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9
-          2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+        <svg viewBox="0 0 24 24">
+          <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9
+            2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+        </svg>
         联系我
       </a>
     </div>
@@ -156,5 +254,76 @@
       © 2026 RS_Seeker · Powered by GitHub Pages
     </div>
   </div>
+</div>
+
+<script>
+  // ===== 打字机 =====
+  const textLines = [
+    "你好！我是 RS_Seeker，",
+    "一名热爱技术与开源的开发者。",
+    "在代码与想象之间，",
+    "持续构建属于未来的数字世界。"
+  ];
+
+  const typewriter = document.getElementById("typewriter");
+  const links = document.getElementById("links");
+
+  let lineIndex = 0;
+  let charIndex = 0;
+  const typingSpeed = 55;
+  const lineDelay = 600;
+
+  function typeLine() {
+    if (lineIndex < textLines.length) {
+      const p = document.createElement("p");
+      typewriter.appendChild(p);
+      function typeChar() {
+        if (charIndex < textLines[lineIndex].length) {
+          p.textContent += textLines[lineIndex][charIndex++];
+          setTimeout(typeChar, typingSpeed);
+        } else {
+          charIndex = 0;
+          lineIndex++;
+          setTimeout(typeLine, lineDelay);
+        }
+      }
+      typeChar();
+    } else {
+      setTimeout(() => {
+        links.style.transition = "opacity 0.8s ease, transform 0.8s ease";
+        links.style.opacity = "1";
+        links.style.transform = "translateY(0)";
+      }, 400);
+    }
+  }
+  setTimeout(typeLine, 800);
+
+  // ===== 主题切换 =====
+  const themeBtn = document.getElementById("themeBtn");
+  themeBtn.addEventListener("click", () => {
+    document.body.classList.toggle("light");
+    themeBtn.textContent = document.body.classList.contains("light") ? "☀️" : "🌙";
+  });
+
+  // ===== 3D 视差 =====
+  const card = document.getElementById("card");
+  const scene = document.getElementById("scene");
+
+  scene.addEventListener("mousemove", (e) => {
+    const rect = scene.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+
+    card.style.transform = `
+      rotateY(${x * 14}deg)
+      rotateX(${-y * 10}deg)
+    `;
+  });
+
+  scene.addEventListener("mouseleave", () => {
+    card.style.transform = "rotateY(0deg) rotateX(0deg)";
+  });
+</script>
+
 </body>
 </html>
