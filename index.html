@@ -350,7 +350,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         <div class="layer-row">
           <label>输入层</label>
           <span class="num-wrap">
-            <input type="number" value="1" id="inputSize" min="1" max="20">
+            <input type="number" value="1" id="inputSize" min="1">
             <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
             <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </span>
@@ -358,7 +358,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         <div class="layer-row" data-layer>
           <label>隐藏层 1</label>
           <span class="num-wrap">
-            <input type="number" value="1" min="1" max="32">
+            <input type="number" value="1" min="1">
             <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
             <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </span>
@@ -367,7 +367,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         <div class="layer-row">
           <label>输出层</label>
           <span class="num-wrap">
-            <input type="number" value="1" id="outputSize" min="1" max="20">
+            <input type="number" value="1" id="outputSize" min="1">
             <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
             <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </span>
@@ -812,7 +812,7 @@ document.getElementById("addLayerBtn").addEventListener("click", () => {
   div.innerHTML = `
     <label>隐藏层 ${idx}</label>
     <span class="num-wrap">
-      <input type="number" value="1" min="1" max="32">
+      <input type="number" value="1" min="1">
       <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </span>
