@@ -1,253 +1,1257 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RS_Seeker · 个人主页</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+<meta charset="UTF-8" />
+<title>神经网络训练器</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
 
-    body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #0e0e11;
-      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-      color: #e5e5e5;
-      overflow: hidden;
-      transition: background 0.6s ease, color 0.6s ease;
-    }
+body {
+  font-family: 'Segoe UI', 'PingFang SC', sans-serif;
+  background: #0e0e11;
+  color: #e5e5e5;
+  min-height: 100vh;
+  padding: 32px 16px;
+}
 
-    body.light {
-      background: #f4f5f7;
-      color: #1a1a2e;
-    }
+h1 { font-size: 24px; margin-bottom: 4px; }
+.subtitle { color: #888; font-size: 13px; margin-bottom: 24px; }
 
-    .theme-toggle {
-      position: fixed;
-      top: 18px;
-      right: 22px;
-      z-index: 10;
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      border: 1px solid rgba(255,255,255,0.15);
-      background: rgba(255,255,255,0.06);
-      color: #fff;
-      font-size: 20px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.3s;
-    }
-    .theme-toggle:hover {
-      transform: rotate(20deg) scale(1.1);
-    }
-    body.light .theme-toggle {
-      background: rgba(0,0,0,0.05);
-      color: #333;
-      border-color: rgba(0,0,0,0.1);
-    }
+.layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
 
-    .scene {
-      perspective: 1200px;
-      z-index: 1;
-    }
+/* ===== 通用面板 ===== */
+.panel {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+  margin-bottom: 20px;
+}
+.panel h3 {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
 
-    .card {
-      position: relative;
-      width: 420px;
-      max-width: 92%;
-      padding: 52px 44px 40px;
-      background: rgba(255, 255, 255, 0.04);
-      backdrop-filter: blur(18px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 24px;
-      text-align: center;
-      transform-style: preserve-3d;
-      transition: transform 0.15s ease-out, box-shadow 0.3s;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.45);
-    }
-    body.light .card {
-      background: rgba(255,255,255,0.85);
-      border-color: rgba(0,0,0,0.08);
-      box-shadow: 0 10px 40px rgba(0,0,0,0.08);
-    }
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 5px;
+}
+.field input, .field select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  font-size: 14px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+.field select {
+  background: rgba(255,255,255,0.05) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;
+  padding-right: 32px;
+}
+.field select:focus { outline:none; border-color:#58a6ff; }
+.field select option {
+  background: #1a1a20;
+  color: #e5e5e5;
+  border: none;
+  outline: none;
+}
+.field select {
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.field select:focus {
+  border-bottom-color: #58a6ff;
+}
+.field input:focus { outline:none; border-color:#58a6ff; }
 
-    .avatar {
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 2px solid rgba(255,255,255,0.2);
-      margin-bottom: 22px;
-      animation: float 5s ease-in-out infinite;
-      transform: translateZ(40px);
-    }
-    .scene:hover .avatar {
-      animation-play-state: paused;
-    }
-    body.light .avatar {
-      border-color: rgba(0,0,0,0.15);
-    }
-    @keyframes float {
-      0%,100% { transform: translateY(0) translateZ(40px); }
-      50% { transform: translateY(-8px) translateZ(40px); }
-    }
+/* ===== number input 暗色增减箭头（可点击覆盖层方案） ===== */
+.num-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+}
+.num-wrap input[type="number"] {
+  width: 100%;
+  -moz-appearance: textfield;
+  padding-right: 22px;
+}
+.num-wrap input[type="number"]::-webkit-inner-spin-button,
+.num-wrap input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* 上下两个独立按钮 */
+.num-wrap .num-btn {
+  position: absolute;
+  right: 0;
+  width: 20px;
+  height: 45%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  pointer-events: auto;
+}
+.num-wrap .num-btn svg {
+  pointer-events: none;
+  width: 10px;
+  height: 10px;
+}
+.num-wrap .num-btn.up {
+  top: 2px;
+}
+.num-wrap .num-btn.down {
+  bottom: 2px;
+}
+.num-wrap .num-btn:hover {
+  background: rgba(88,166,255,0.15);
+}
+.num-wrap .num-btn:active {
+  background: rgba(88,166,255,0.25);
+}
 
-    .name {
-      font-size: 30px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      margin-bottom: 6px;
-      transform: translateZ(30px);
-    }
+/* 各场景的包裹层宽度适配 */
+.field .num-wrap { width: 100%; }
+.layer-row .num-wrap { flex: 1; }
+.data-table .num-wrap { width: 80px; min-width: 60px; }
+.infer-row .num-wrap { width: 90px; }
 
-    .tagline {
-      font-size: 14px;
-      color: #888;
-      letter-spacing: 1px;
-      margin-bottom: 18px;
-      transform: translateZ(20px);
-    }
-    body.light .tagline {
-      color: #666;
-    }
+.btn {
+  width: 100%;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(88,166,255,0.1);
+  color: #58a6ff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s;
+  margin-top: 6px;
+}
+.btn:hover { background: rgba(88,166,255,0.2); transform: translateY(-1px); }
+.btn:disabled { opacity:0.35; cursor:not-allowed; }
+.btn-row { display:flex; gap:8px; }
+.btn-row .btn { width:auto; flex:1; }
 
-    /* ✅ 新增 greeting 样式 */
-    .greeting {
-      font-size: 15px;
-      color: #bbb;
-      margin-bottom: 28px;
-      transform: translateZ(18px);
-    }
-    body.light .greeting {
-      color: #555;
-    }
+/* ===== 层配置 ===== */
+.layer-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.layer-row label {
+  font-size: 12px;
+  color: #999;
+  min-width: 70px;
+}
+.layer-row input {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  font-size: 13px;
+}
+.layer-row input:focus { outline:none; border-color:#58a6ff; }
+.layer-row .remove-layer {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,80,80,0.3);
+  background: rgba(255,80,80,0.08);
+  color: #ff5555;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.layer-row .remove-layer:hover { background: rgba(255,80,80,0.2); }
+#addLayerBtn {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 12px;
+  background: rgba(88,166,255,0.06);
+}
 
-    .links {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
+/* ===== 训练数据 ===== */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 10px;
+  table-layout: auto;
+}
+.data-table th, .data-table td {
+  padding: 6px 4px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+.data-table th { color: #888; font-weight: 500; }
+.data-table input {
+  width: 80px;
+  min-width: 60px;
+  padding: 4px 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+}
+.data-table input:focus { outline:none; border-color:#58a6ff; }
+.data-table .remove-row {
+  color: #ff5555;
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
 
-    .links a {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 13px 22px;
-      border-radius: 12px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.1);
-      color: #e5e5e5;
-      text-decoration: none;
-      font-size: 15px;
-      font-weight: 500;
-      transition: all 0.3s ease;
-      transform: translateZ(10px);
-    }
-    body.light .links a {
-      background: rgba(0,0,0,0.04);
-      border-color: rgba(0,0,0,0.1);
-      color: #333;
-    }
+/* ===== 进度条 ===== */
+.progress-wrap { margin-top: 14px; }
+.progress-bar {
+  width: 100%; height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #58a6ff, #a78bfa);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+.progress-text { font-size: 11px; color:#888; margin-top:5px; text-align:right; }
 
-    .links a:hover {
-      background: rgba(255,255,255,0.1);
-      transform: translateY(-3px) translateZ(14px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-    }
+/* ===== 状态 ===== */
+.status { font-size: 12px; color:#888; margin-top:10px; }
 
-    .links a svg {
-      width: 20px;
-      height: 20px;
-      fill: currentColor;
-      flex-shrink: 0;
-    }
+/* ===== 右侧：训练数据编辑面板 ===== */
+.data-edit-panel {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  min-height: 300px;
+  max-height: 100vh;
+}
+.data-edit-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
+.data-edit-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 200px;
+  max-height: 70vh;
+}
+.data-edit-panel .add-btn {
+  margin-top: 12px;
+  width: auto;
+  padding: 8px 16px;
+  font-size: 12px;
+}
 
-    .footer {
-      margin-top: 36px;
-      font-size: 12px;
-      color: #555;
-      letter-spacing: 0.5px;
-    }
-    body.light .footer {
-      color: #999;
-    }
-  </style>
+/* ===== Chart ===== */
+.chart-panel {
+  grid-column: 1 / -1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+}
+.chart-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
+#lossChart { width:100%; height:260px; }
+
+/* ===== 推理 ===== */
+.infer-panel {
+  grid-column: 1 / -1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+}
+.infer-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
+.infer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 14px;
+  table-layout: auto;
+}
+.infer-table th, .infer-table td {
+  padding: 5px 8px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.infer-table th { color: #888; font-weight: 500; font-size: 12px; }
+.infer-table td:first-child { color: #999; font-size: 12px; text-align: left; }
+.infer-table .num-wrap { width: 100%; min-width: 80px; }
+.infer-table .num-wrap input[type="number"] {
+  text-align: center;
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+}
+.infer-table .num-wrap input[type="number"]:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.infer-result { font-size: 14px; color:#58a6ff; min-height:1.5em; }
+</style>
 </head>
 <body>
 
-<button class="theme-toggle" id="themeBtn">🌙</button>
+<h1>🧠 神经网络训练器</h1>
+<p class="subtitle"></p>
 
-<div class="scene" id="scene">
-  <div class="card" id="card">
-    <img
-      class="avatar"
-      src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEXNbZqVnn1vgXvsTqKVZkuEYQ4iiwHjQAC0yMAAkvwuVanYLoFCvHqtT0E.png"
-      alt="avatar"
-    >
+<div class="layout">
 
-    <div class="name">RS_Seeker</div>
-    <div class="tagline">探索者 · 开发者</div>
+  <!-- ===== 左侧：全部控制 ===== -->
+  <div>
 
-    <!-- ✅ 新增 -->
-    <div class="greeting">你好，我是 RS_Seeker！</div>
-
-    <div class="links">
-      <a href="https://github.com/RSSeeker" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16">
-          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-            0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15
-            -.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87
-            .51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12
-            0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82
-            2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65
-            3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013
-            8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-        </svg>
-        GitHub
-      </a>
+    <!-- 网络结构 -->
+    <div class="panel">
+      <h3>🕸️ 网络结构</h3>
+      <div class="layer-config" id="layerConfig">
+        <div class="layer-row">
+          <label>输入层</label>
+          <span class="num-wrap">
+            <input type="number" value="1" id="inputSize" min="1" max="20">
+            <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </span>
+        </div>
+        <div class="layer-row" data-layer>
+          <label>隐藏层 1</label>
+          <span class="num-wrap">
+            <input type="number" value="1" min="1" max="32">
+            <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </span>
+          <button class="remove-layer" title="删除">×</button>
+        </div>
+        <div class="layer-row">
+          <label>输出层</label>
+          <span class="num-wrap">
+            <input type="number" value="1" id="outputSize" min="1" max="20">
+            <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </span>
+        </div>
+      </div>
+      <button class="btn" id="addLayerBtn">+ 添加隐藏层</button>
     </div>
 
-    <div class="footer">
-      © 2026 RS_Seeker · Powered by GitHub Pages
+    <!-- 训练参数 -->
+    <div class="panel">
+      <h3>⚙️ 训练参数</h3>
+      <div class="field">
+        <label>学习率 (lr)</label>
+        <span class="num-wrap">
+          <input type="number" id="lr" value="0.01" step="0.001" min="0.00001">
+          <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </span>
+      </div>
+      <div class="field">
+        <label>训练轮数 (epochs)</label>
+        <span class="num-wrap">
+          <input type="number" id="epochs" value="1000" min="1">
+          <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </span>
+      </div>
+      <div class="field">
+        <label>激活函数</label>
+        <select id="activation">
+          <option value="leaky_relu" selected>Leaky ReLU</option>
+          <option value="relu">ReLU</option>
+          <option value="sigmoid">Sigmoid</option>
+          <option value="tanh">Tanh</option>
+        </select>
+      </div>
+
+      <button class="btn" id="trainBtn">▶ 开始训练</button>
+
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText">未开始</div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn" id="saveBtn">💾 保存模型</button>
+        <button class="btn" id="loadBtn">📂 加载模型</button>
+      </div>
+      <div class="status" id="status">就绪 — 请添加训练数据</div>
     </div>
   </div>
+
+  <!-- 右侧：训练数据编辑 -->
+  <div class="data-edit-panel">
+    <h3>📊 训练数据</h3>
+    <div class="data-edit-scroll">
+      <table class="data-table" id="dataTable">
+        <thead>
+          <tr id="dataHead">
+            <th>x₁</th>
+            <th>y₁</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dataBody">
+        </tbody>
+      </table>
+    </div>
+    <button class="btn add-btn" id="addDataBtn">+ 添加样本</button>
+  </div>
+
+  <!-- 下方：图表 + 推理 -->
+  <div class="chart-panel">
+    <h3>📈 Loss 曲线</h3>
+    <canvas id="lossChart"></canvas>
+  </div>
+
+  <div class="infer-panel">
+    <h3>🔮 推理面板</h3>
+    <table class="infer-table" id="inferTable">
+      <thead><tr id="inferHead"></tr></thead>
+      <tbody id="inferBody"></tbody>
+    </table>
+    <button class="btn" id="inferBtn" style="width:auto;padding:10px 28px;">▶ 预测</button>
+    <div class="infer-result" id="inferResult"></div>
+  </div>
+
 </div>
 
+<!-- ===== 依赖 ===== -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-  const themeBtn = document.getElementById("themeBtn");
-  themeBtn.addEventListener("click", () => {
-    document.body.classList.toggle("light");
-    themeBtn.textContent = document.body.classList.contains("light") ? "☀️" : "🌙";
+// ============================================================
+//  神经网络训练器 — Pure JavaScript 版
+// ============================================================
+
+// ===== DOM =====
+const statusEl      = document.getElementById("status");
+const trainBtn      = document.getElementById("trainBtn");
+const progressFill  = document.getElementById("progressFill");
+const progressText  = document.getElementById("progressText");
+const inferResult   = document.getElementById("inferResult");
+const dataBody      = document.getElementById("dataBody");
+const dataHead      = document.getElementById("dataHead");
+const layerConfig   = document.getElementById("layerConfig");
+
+let currentWeights = null;
+let lossHistory    = [];
+let lossChart      = null;
+let isTraining     = false;
+
+// ===== 激活函数 & 导数 =====
+const ACT = {
+  leaky_relu: {
+    fn:  (z) => z > 0 ? z : 0.01 * z,
+    deriv: (z) => z > 0 ? 1.0 : 0.01
+  },
+  relu: {
+    fn:  (z) => Math.max(0, z),
+    deriv: (z) => z > 0 ? 1.0 : 0.0
+  },
+  sigmoid: {
+    fn:  (z) => { const e = Math.exp(-Math.max(-500, Math.min(500, z))); return 1.0 / (1.0 + e); },
+    deriv: (a) => a * (1.0 - a)
+  },
+  tanh: {
+    fn:  (z) => Math.tanh(z),
+    deriv: (a) => 1.0 - a * a
+  }
+};
+
+// ===== 工具：He 初始化 =====
+function heInit(fanIn) {
+  const std = Math.sqrt(2.0 / fanIn);
+  return (Math.random() * 2 - 1) * std;
+}
+
+// ============================================================
+//  网络结构：network[l][n] = { weights, bias, z, a }
+// ============================================================
+function buildNetwork(layerSizes) {
+  const net = [];
+  for (let l = 0; l < layerSizes.length; l++) {
+    const layer = [];
+    const fanIn = (l === 0) ? 1 : layerSizes[l - 1];
+    for (let n = 0; n < layerSizes[l]; n++) {
+      const weights = (l === 0) ? [] : Array.from({ length: fanIn }, () => heInit(fanIn));
+      layer.push({ weights, bias: 0.0, z: 0.0, a: 0.0 });
+    }
+    net.push(layer);
+  }
+  return net;
+}
+
+// ===== 前向传播 =====
+function forward(net, inputs, activation, isTraining) {
+  let current = inputs.slice();
+  for (let l = 0; l < net.length; l++) {
+    const layer = net[l];
+    const isOut = (l === net.length - 1);
+    const next = [];
+    for (let n = 0; n < layer.length; n++) {
+      const node = layer[n];
+      if (l === 0) {
+        node.z = current[0];
+      } else {
+        let sum = node.bias;
+        for (let i = 0; i < node.weights.length; i++) {
+          sum += node.weights[i] * (current[i] || 0);
+        }
+        node.z = sum;
+      }
+      if (isOut) {
+        node.a = node.z;
+      } else {
+        node.a = ACT[activation].fn(node.z);
+      }
+      next.push(node.a);
+    }
+    current = next;
+  }
+  return current;
+}
+
+// ===== 训练（反向传播 + Adam） =====
+function train(network, trainData, epochs, lr, activation, onProgress) {
+  const numLayers = network.length;
+  const numSamples = trainData.length;
+  const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
+  const patience = 80;
+  let bestLoss = Infinity;
+  let noImprove = 0;
+
+  const mW = {}, vW = {}, mB = {}, vB = {};
+  let step = 0;
+
+  function getDerivative(node, activation, isOutput) {
+    if (isOutput) return 1.0;
+    return ACT[activation].deriv(node.z);
+  }
+
+  const losses = [];
+
+  for (let epoch = 1; epoch <= epochs; epoch++) {
+    // 打乱数据
+    for (let i = trainData.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [trainData[i], trainData[j]] = [trainData[j], trainData[i]];
+    }
+
+    let epochLoss = 0;
+
+    for (const sample of trainData) {
+      const x = sample[0], y = sample[1];
+
+      forward(network, x, activation, true);
+
+      let loss = 0;
+      const outputLayer = network[numLayers - 1];
+      for (let n = 0; n < outputLayer.length; n++) {
+        const diff = outputLayer[n].a - y[n];
+        loss += diff * diff;
+      }
+      loss /= outputLayer.length;
+      epochLoss += loss;
+
+      // ===== 反向传播 =====
+      let deltas = [];
+      for (let n = 0; n < outputLayer.length; n++) {
+        const d = (2.0 / outputLayer.length) * (outputLayer[n].a - y[n]) * getDerivative(outputLayer[n], activation, true);
+        deltas.push(d);
+      }
+
+      for (let l = numLayers - 1; l >= 1; l--) {
+        const currLayer = network[l];
+        const prevLayer = network[l - 1];
+        const nextDeltas = new Array(prevLayer.length).fill(0);
+
+        for (let n = 0; n < currLayer.length; n++) {
+          const node = currLayer[n];
+          const d = deltas[n];
+
+          // Bias 梯度
+          const bKey = `${l},${n}`;
+          if (!mB[bKey]) { mB[bKey] = 0; vB[bKey] = 0; }
+          mB[bKey] = beta1 * mB[bKey] + (1 - beta1) * d;
+          vB[bKey] = beta2 * vB[bKey] + (1 - beta2) * d * d;
+
+          // 权重梯度
+          for (let i = 0; i < node.weights.length; i++) {
+            const wKey = `${l},${n},${i}`;
+            const grad = d * prevLayer[i].a;
+            if (!mW[wKey]) { mW[wKey] = 0; vW[wKey] = 0; }
+            mW[wKey] = beta1 * mW[wKey] + (1 - beta1) * grad;
+            vW[wKey] = beta2 * vW[wKey] + (1 - beta2) * grad * grad;
+          }
+
+          // 传播到上一层
+          for (let i = 0; i < prevLayer.length; i++) {
+            nextDeltas[i] += d * node.weights[i] * getDerivative(prevLayer[i], activation, false);
+          }
+        }
+        deltas = nextDeltas;
+      }
+
+      step++;
+      // Adam 参数更新
+      const mHat = 1.0 - Math.pow(beta1, step);
+      const vHat = 1.0 - Math.pow(beta2, step);
+
+      for (const key in mB) {
+        const [l, n] = key.split(",").map(Number);
+        network[l][n].bias -= lr * (mB[key] / mHat) / (Math.sqrt(vB[key] / vHat) + eps);
+      }
+      for (const key in mW) {
+        const [l, n, i] = key.split(",").map(Number);
+        network[l][n].weights[i] -= lr * (mW[key] / mHat) / (Math.sqrt(vW[key] / vHat) + eps);
+      }
+    }
+
+    const avgLoss = epochLoss / numSamples;
+    losses.push(avgLoss);
+
+    if (epoch % 10 === 0 || epoch === 1) {
+      onProgress(epoch, avgLoss);
+    }
+
+    // Early stopping
+    if (avgLoss < bestLoss - 1e-7) {
+      bestLoss = avgLoss;
+      noImprove = 0;
+    } else {
+      noImprove++;
+    }
+    if (noImprove >= patience) {
+      onProgress(epoch, avgLoss);
+      break;
+    }
+  }
+
+  return losses;
+}
+
+// ===== 提取权重 =====
+function extractWeights(net) {
+  return net.map(layer =>
+    layer.map(node => ({
+      weights: node.weights.slice(),
+      bias: node.bias
+    }))
+  );
+}
+
+// ===== 恢复权重 =====
+function applyWeights(net, weights) {
+  for (let l = 0; l < weights.length; l++) {
+    for (let n = 0; n < weights[l].length; n++) {
+      net[l][n].weights = weights[l][n].weights.slice();
+      net[l][n].bias = weights[l][n].bias;
+    }
+  }
+}
+
+// ============================================================
+//  UI 交互逻辑
+// ============================================================
+
+// ===== 暗色箭头按钮：事件委托 =====
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".num-btn");
+  if (!btn) return;
+  e.preventDefault();
+  const dir = btn.getAttribute("data-dir");
+  const wrap = btn.closest(".num-wrap");
+  if (!wrap) return;
+  const inp = wrap.querySelector("input[type='number']");
+  if (!inp) return;
+  const step = parseFloat(inp.step) || 1;
+  const min  = inp.min !== "" ? parseFloat(inp.min) : -Infinity;
+  const max  = inp.max !== "" ? parseFloat(inp.max) : Infinity;
+  let val = parseFloat(inp.value) || 0;
+  val = dir === "up" ? val + step : val - step;
+  val = Math.max(min, Math.min(max, val));
+  const dec = (inp.step + "").split(".")[1];
+  inp.value = dec ? val.toFixed(dec.length) : val;
+  inp.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+// ===== 训练数据表 =====
+function syncInputSize() {
+  const n  = parseInt(document.getElementById("inputSize").value) || 1;
+  const out = parseInt(document.getElementById("outputSize").value) || 1;
+  dataHead.innerHTML = "";
+  for (let i = 1; i <= n; i++) dataHead.innerHTML += `<th>x₍${i}₎</th>`;
+  for (let i = 1; i <= out; i++) dataHead.innerHTML += `<th>y₍${i}₎</th>`;
+  dataHead.innerHTML += `<th></th>`;
+  updateInputOutputLock();
+}
+
+function updateInputOutputLock() {
+  const hasData = dataBody.querySelectorAll("tr").length > 0;
+  const inputEl = document.getElementById("inputSize");
+  const outputEl = document.getElementById("outputSize");
+
+  inputEl.disabled = hasData;
+  outputEl.disabled = hasData;
+
+  if (hasData) {
+    inputEl.title = "请先清空训练数据以修改输入层大小";
+    outputEl.title = "请先清空训练数据以修改输出层大小";
+    inputEl.style.opacity = "0.5";
+    outputEl.style.opacity = "0.5";
+    inputEl.style.cursor = "not-allowed";
+    outputEl.style.cursor = "not-allowed";
+  } else {
+    inputEl.title = "";
+    outputEl.title = "";
+    inputEl.style.opacity = "1";
+    outputEl.style.opacity = "1";
+    inputEl.style.cursor = "text";
+    outputEl.style.cursor = "text";
+  }
+}
+
+function addDataRow(values) {
+  const n  = parseInt(document.getElementById("inputSize").value) || 1;
+  const out = parseInt(document.getElementById("outputSize").value) || 1;
+  const tr = document.createElement("tr");
+  for (let i = 0; i < n + out; i++) {
+    const td = document.createElement("td");
+    const wrap = document.createElement("span");
+    wrap.className = "num-wrap";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.step = "0.1";
+    inp.value = (values && values[i] !== undefined) ? values[i] : 0;
+    wrap.appendChild(inp);
+    const upBtn = document.createElement("span");
+    upBtn.className = "num-btn up";
+    upBtn.setAttribute("data-dir", "up");
+    upBtn.innerHTML = '<svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const downBtn = document.createElement("span");
+    downBtn.className = "num-btn down";
+    downBtn.setAttribute("data-dir", "down");
+    downBtn.innerHTML = '<svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    wrap.appendChild(upBtn);
+    wrap.appendChild(downBtn);
+    td.appendChild(wrap);
+    tr.appendChild(td);
+  }
+  const td = document.createElement("td");
+  const btn = document.createElement("button");
+  btn.className = "remove-row"; btn.textContent = "×";
+  btn.onclick = () => { tr.remove(); updateInputOutputLock(); };
+  td.appendChild(btn);
+  tr.appendChild(td);
+  dataBody.appendChild(tr);
+}
+
+syncInputSize();
+updateInputOutputLock();
+
+document.getElementById("addDataBtn").addEventListener("click", () => { addDataRow(); updateInputOutputLock(); });
+document.getElementById("inputSize").addEventListener("change", () => {
+  if (!document.getElementById("inputSize").disabled) {
+    syncInputSize();
+    rebuildInferInputs();
+  }
+});
+document.getElementById("outputSize").addEventListener("change", () => {
+  if (!document.getElementById("outputSize").disabled) {
+    syncInputSize();
+  }
+});
+
+// ===== 层配置 =====
+document.getElementById("addLayerBtn").addEventListener("click", () => {
+  const rows = layerConfig.querySelectorAll("[data-layer]");
+  const idx = rows.length + 1;
+  const div = document.createElement("div");
+  div.className = "layer-row";
+  div.setAttribute("data-layer", "");
+  div.innerHTML = `
+    <label>隐藏层 ${idx}</label>
+    <span class="num-wrap">
+      <input type="number" value="1" min="1" max="32">
+      <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </span>
+    <button class="remove-layer" title="删除">×</button>
+  `;
+  const outputRow = layerConfig.querySelector("div:last-child");
+  layerConfig.insertBefore(div, outputRow);
+  updateLayerLabels();
+  bindRemoveButtons();
+});
+
+function updateLayerLabels() {
+  layerConfig.querySelectorAll("[data-layer]").forEach((row, i) => {
+    row.querySelector("label").textContent = `隐藏层 ${i + 1}`;
+  });
+}
+
+function bindRemoveButtons() {
+  layerConfig.querySelectorAll(".remove-layer").forEach(btn => {
+    btn.onclick = () => {
+      if (layerConfig.querySelectorAll("[data-layer]").length <= 1) return;
+      btn.parentElement.remove();
+      updateLayerLabels();
+    };
+  });
+}
+bindRemoveButtons();
+
+// ===== 推理输入（表格形式，每行一个神经元） =====
+function rebuildInferInputs() {
+  const n = parseInt(document.getElementById("inputSize").value) || 1;
+  const head = document.getElementById("inferHead");
+  const body = document.getElementById("inferBody");
+  head.innerHTML = "<th>神经元</th><th>输入值</th>";
+  body.innerHTML = "";
+
+  for (let i = 0; i < n; i++) {
+    const tr = document.createElement("tr");
+
+    const labelTd = document.createElement("td");
+    labelTd.textContent = `x₍${i + 1}₎`;
+    tr.appendChild(labelTd);
+
+    const inputTd = document.createElement("td");
+    const numWrap = document.createElement("span");
+    numWrap.className = "num-wrap";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.step = "0.1";
+    inp.value = "0";
+    numWrap.appendChild(inp);
+    const upBtn = document.createElement("span");
+    upBtn.className = "num-btn up";
+    upBtn.setAttribute("data-dir", "up");
+    upBtn.innerHTML = '<svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const downBtn = document.createElement("span");
+    downBtn.className = "num-btn down";
+    downBtn.setAttribute("data-dir", "down");
+    downBtn.innerHTML = '<svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    numWrap.appendChild(upBtn);
+    numWrap.appendChild(downBtn);
+    inputTd.appendChild(numWrap);
+    tr.appendChild(inputTd);
+
+    body.appendChild(tr);
+  }
+}
+rebuildInferInputs();
+
+// ===== 收集层大小 =====
+function getLayerSizes() {
+  const input  = parseInt(document.getElementById("inputSize").value) || 1;
+  const output = parseInt(document.getElementById("outputSize").value) || 1;
+  const layers = [input];
+  layerConfig.querySelectorAll("[data-layer] input").forEach(inp => {
+    layers.push(parseInt(inp.value) || 4);
+  });
+  layers.push(output);
+  return layers;
+}
+
+// ===== 收集训练数据 =====
+function getTrainData() {
+  const n  = parseInt(document.getElementById("inputSize").value) || 1;
+  const out = parseInt(document.getElementById("outputSize").value) || 1;
+  const data = [];
+  dataBody.querySelectorAll("tr").forEach(tr => {
+    const vals = [];
+    tr.querySelectorAll("input").forEach(inp => vals.push(parseFloat(inp.value) || 0));
+    if (vals.length === n + out) {
+      data.push([vals.slice(0, n), vals.slice(n)]);
+    }
+  });
+  return data;
+}
+
+// ===== Loss 图表 =====
+function drawLossChart(losses) {
+  const ctx = document.getElementById("lossChart").getContext("2d");
+  if (lossChart) lossChart.destroy();
+
+  let data = losses;
+  if (data.length > 500) {
+    const step = Math.floor(data.length / 500);
+    data = data.filter((_, i) => i % step === 0);
+  }
+
+  lossChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: data.map((_, i) => i * Math.round(losses.length / data.length)),
+      datasets: [{
+        label: "MSE Loss",
+        data: data,
+        borderColor: "#58a6ff",
+        backgroundColor: "rgba(88,166,255,0.08)",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      animation: { duration: 300 },
+      interaction: {
+        mode: 'nearest',
+        axis: 'x',
+        intersect: false
+      },
+      plugins: {
+        legend: { labels: { color: "#888" } },
+        tooltip: {
+          enabled: true,
+          backgroundColor: 'rgba(20,20,30,0.92)',
+          titleColor: '#aaa',
+          bodyColor: '#58a6ff',
+          borderColor: 'rgba(88,166,255,0.25)',
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: 10,
+          displayColors: false,
+          titleFont: { size: 12 },
+          bodyFont: { size: 14, weight: 'bold' },
+          callbacks: {
+            title: (items) => `Epoch: ${items[0].label}`,
+            label: (item) => `Loss: ${parseFloat(item.raw).toFixed(10)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Epoch", color: "#666" },
+          grid: { color: "rgba(255,255,255,0.04)" },
+          ticks: { color: "#666" }
+        },
+        y: {
+          title: { display: true, text: "MSE Loss", color: "#666" },
+          grid: { color: "rgba(255,255,255,0.04)" },
+          ticks: { color: "#666" }
+        }
+      }
+    }
+  });
+}
+
+// ===== 训练按钮 =====
+trainBtn.addEventListener("click", async () => {
+  if (isTraining) return;
+  isTraining = true;
+
+  inferResult.textContent = "";
+  progressFill.style.width = "0%";
+  progressText.textContent = "0%";
+  lossHistory = [];
+
+  trainBtn.disabled = true;
+  statusEl.textContent = "准备训练...";
+  clearLossChart();
+
+  const layerSizes  = getLayerSizes();
+  const trainData   = getTrainData();
+  const lr          = parseFloat(document.getElementById("lr").value);
+  const epochs      = parseInt(document.getElementById("epochs").value);
+  const activation  = document.getElementById("activation").value;
+
+  if (trainData.length === 0) {
+    statusEl.textContent = "⚠️ 请先添加训练数据";
+    trainBtn.disabled = false;
+    isTraining = false;
+    return;
+  }
+
+  await new Promise(r => setTimeout(r, 50));
+
+  statusEl.textContent = "训练中...";
+
+  const net = buildNetwork(layerSizes);
+  const startTime = performance.now();
+
+  const losses = train(net, trainData, epochs, lr, activation, (epoch, loss) => {
+    const pct = Math.min(100, Math.round(epoch / epochs * 100));
+    progressFill.style.width = pct + "%";
+    progressText.textContent = `${pct}%  (Epoch ${epoch}/${epochs}, MSE: ${loss.toFixed(8)})`;
+    statusEl.textContent = `训练中... Epoch ${epoch}`;
   });
 
-  const card = document.getElementById("card");
-  const scene = document.getElementById("scene");
+  const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
 
-  scene.addEventListener("mousemove", (e) => {
-    const rect = scene.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width - 0.5;
-    const y = (e.clientY - rect.top) / rect.height - 0.5;
+  currentWeights = extractWeights(net);
+  lossHistory = losses;
 
-    card.style.transform = `
-      rotateY(${x * 14}deg)
-      rotateX(${-y * 10}deg)
-    `;
+  statusEl.textContent = `✅ 训练完成！耗时 ${elapsed}s，Loss: ${losses[losses.length - 1].toFixed(10)}`;
+  trainBtn.disabled = false;
+  isTraining = false;
+
+  drawLossChart(losses);
+});
+
+// ===== 收集全部训练数据（含当前表格内容） =====
+function getAllTrainData() {
+  const n  = parseInt(document.getElementById("inputSize").value) || 1;
+  const out = parseInt(document.getElementById("outputSize").value) || 1;
+  const data = [];
+  dataBody.querySelectorAll("tr").forEach(tr => {
+    const vals = [];
+    tr.querySelectorAll("input").forEach(inp => vals.push(parseFloat(inp.value) || 0));
+    if (vals.length === n + out) {
+      data.push(vals);
+    }
+  });
+  return data;
+}
+
+// ===== 还原全部训练数据到表格 =====
+function setAllTrainData(rawData, inputSize, outputSize) {
+  // 清空现有数据
+  dataBody.innerHTML = "";
+  // 设置输入输出大小
+  document.getElementById("inputSize").value = inputSize;
+  document.getElementById("outputSize").value = outputSize;
+  syncInputSize();
+  // 逐行添加
+  for (const row of rawData) {
+    addDataRow(row);
+  }
+  updateInputOutputLock();
+}
+
+// ===== 构建完整的模型 JSON（含全部配置） =====
+function buildModelJSON() {
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    config: {
+      layerSizes: getLayerSizes(),
+      lr: parseFloat(document.getElementById("lr").value),
+      epochs: parseInt(document.getElementById("epochs").value),
+      activation: document.getElementById("activation").value,
+    },
+    weights: currentWeights,
+    trainData: getAllTrainData(),
+    lossHistory: lossHistory,
+  };
+}
+
+// ===== 从模型 JSON 恢复全部状态 =====
+function restoreFromModelJSON(parsed) {
+  const cfg = parsed.config;
+
+  // 恢复训练参数
+  document.getElementById("lr").value = cfg.lr;
+  document.getElementById("epochs").value = cfg.epochs;
+  document.getElementById("activation").value = cfg.activation;
+
+  // 恢复网络结构 & 权重
+  const layerSizes = cfg.layerSizes;
+  const net = buildNetwork(layerSizes);
+  applyWeights(net, parsed.weights);
+  currentWeights = extractWeights(net);
+
+  // 恢复隐藏层 UI
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  const targetHiddenCount = layerSizes.length - 2;
+  for (let i = existingLayers.length - 1; i >= targetHiddenCount; i--) {
+    existingLayers[i].remove();
+  }
+  for (let i = existingLayers.length; i < targetHiddenCount; i++) {
+    document.getElementById("addLayerBtn").click();
+  }
+  layerConfig.querySelectorAll("[data-layer] input").forEach((inp, i) => {
+    inp.value = layerSizes[i + 1];
   });
 
-  scene.addEventListener("mouseleave", () => {
-    card.style.transform = "rotateY(0deg) rotateX(0deg)";
+  // 恢复训练数据
+  if (parsed.trainData && parsed.trainData.length > 0) {
+    setAllTrainData(parsed.trainData, layerSizes[0], layerSizes[layerSizes.length - 1]);
+  }
+
+  // 恢复 Loss 曲线
+  if (parsed.lossHistory && parsed.lossHistory.length > 0) {
+    lossHistory = parsed.lossHistory;
+    drawLossChart(lossHistory);
+  }
+
+  syncInputSize();
+  rebuildInferInputs();
+  updateInputOutputLock();
+}
+
+// ===== 保存模型 → 弹出文件下载对话框 =====
+document.getElementById("saveBtn").addEventListener("click", () => {
+  if (!currentWeights) {
+    statusEl.textContent = "⚠️ 没有可保存的模型，请先训练";
+    return;
+  }
+
+  const model = buildModelJSON();
+  const jsonStr = JSON.stringify(model, null, 2);
+  const blob = new Blob([jsonStr], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  // 生成默认文件名
+  const ts = new Date();
+  const tsStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,"0")}${String(ts.getDate()).padStart(2,"0")}_${String(ts.getHours()).padStart(2,"0")}${String(ts.getMinutes()).padStart(2,"0")}${String(ts.getSeconds()).padStart(2,"0")}`;
+  const filename = `nn_model_${tsStr}.json`;
+
+  // 创建隐藏的 <a> 触发下载
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  statusEl.textContent = `✅ 模型已保存为 ${filename}`;
+});
+
+// ===== 加载模型 → 弹出文件选择对话框 =====
+document.getElementById("loadBtn").addEventListener("click", () => {
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".json,application/json";
+  fileInput.onchange = () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+
+        // 校验
+        if (!parsed.config || !parsed.weights || !Array.isArray(parsed.config.layerSizes)) {
+          statusEl.textContent = "⚠️ 文件格式不正确，无法识别为模型文件";
+          return;
+        }
+
+        restoreFromModelJSON(parsed);
+        statusEl.textContent = `✅ 模型已加载 — ${file.name}` +
+          (parsed.savedAt ? `（保存于 ${new Date(parsed.savedAt).toLocaleString("zh-CN")}）` : "");
+      } catch {
+        statusEl.textContent = "⚠️ 文件解析失败，请确认文件格式正确";
+      }
+    };
+    reader.readAsText(file);
+  };
+  fileInput.click();
+});
+
+// ===== 推理 =====
+document.getElementById("inferBtn").addEventListener("click", () => {
+  if (!currentWeights) {
+    inferResult.textContent = "⚠️ 请先训练网络";
+    return;
+  }
+
+  const inputs = [];
+  document.getElementById("inferBody").querySelectorAll("input").forEach(el => {
+    inputs.push(parseFloat(el.value) || 0);
   });
+
+  const layerSizes = getLayerSizes();
+  const activation = document.getElementById("activation").value;
+
+  const net = buildNetwork(layerSizes);
+  applyWeights(net, currentWeights);
+
+  const output = forward(net, inputs, activation, false);
+
+  inferResult.innerHTML = `🎯 预测输出: [${output.map(v => v.toFixed(8)).join(", ")}]`;
+});
+
+// ===== 初始仅显示坐标轴网格，不画曲线 =====
+(function() {
+  const ctx = document.getElementById("lossChart").getContext("2d");
+  lossChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [{
+        label: "MSE Loss",
+        data: [],
+        borderColor: "#58a6ff",
+        backgroundColor: "rgba(88,166,255,0.08)",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        x: {
+          title: { display: false },
+          grid: { color: "rgba(255,255,255,0.06)" },
+          ticks: { display: false },
+          border: { display: false }
+        },
+        y: {
+          title: { display: false },
+          grid: { color: "rgba(255,255,255,0.06)" },
+          ticks: { display: false },
+          border: { display: false }
+        }
+      }
+    }
+  });
+})();
+
+function clearLossChart() {
+  if (lossChart) { lossChart.destroy(); lossChart = null; }
+}
+
 </script>
-
 </body>
 </html>
