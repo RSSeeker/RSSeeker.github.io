@@ -79,7 +79,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 }
 .field input:focus { outline:none; border-color:#58a6ff; }
 
-/* ===== number input 暗色增减箭头（可点击覆盖层方案） ===== */
+/* ===== number input 暗色增减箭头 ===== */
 .num-wrap {
   position: relative;
   display: inline-flex;
@@ -96,7 +96,6 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   -webkit-appearance: none;
   margin: 0;
 }
-/* 上下两个独立按钮 */
 .num-wrap .num-btn {
   position: absolute;
   right: 0;
@@ -117,24 +116,15 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   width: 10px;
   height: 10px;
 }
-.num-wrap .num-btn.up {
-  top: 2px;
-}
-.num-wrap .num-btn.down {
-  bottom: 2px;
-}
-.num-wrap .num-btn:hover {
-  background: rgba(88,166,255,0.15);
-}
-.num-wrap .num-btn:active {
-  background: rgba(88,166,255,0.25);
-}
+.num-wrap .num-btn.up { top: 2px; }
+.num-wrap .num-btn.down { bottom: 2px; }
+.num-wrap .num-btn:hover { background: rgba(88,166,255,0.15); }
+.num-wrap .num-btn:active { background: rgba(88,166,255,0.25); }
 
-/* 各场景的包裹层宽度适配 */
 .field .num-wrap { width: 100%; }
 .layer-row .num-wrap { flex: 1; }
 .data-table .num-wrap { width: 80px; min-width: 60px; }
-.infer-row .num-wrap { width: 90px; }
+.infer-table .num-wrap { width: 100%; min-width: 80px; }
 
 .btn {
   width: 100%;
@@ -202,6 +192,40 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   background: rgba(88,166,255,0.06);
 }
 
+/* ===== 示例按钮网格 ===== */
+.example-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.example-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.example-col h3 {
+  font-size: 13px;
+  color: #aaa;
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.example-col .example-btn {
+  width: 100%;
+}
+.example-btn {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 11px;
+  background: rgba(167,139,250,0.08);
+  border: 1px solid rgba(167,139,250,0.2);
+  color: #a78bfa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.example-btn:hover { background: rgba(167,139,250,0.18); }
+
 /* ===== 训练数据 ===== */
 .data-table {
   width: 100%;
@@ -262,7 +286,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 16px;
-  padding: 22px;
+  padding: 22px 22px 12px 22px;
   display: flex;
   flex-direction: column;
   min-height: 300px;
@@ -276,7 +300,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   max-height: 70vh;
 }
 .data-edit-panel .add-btn {
-  margin-top: 12px;
+  margin-top: 0;
   width: auto;
   padding: 8px 16px;
   font-size: 12px;
@@ -316,7 +340,6 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 }
 .infer-table th { color: #888; font-weight: 500; font-size: 12px; }
 .infer-table td:first-child { color: #999; font-size: 12px; text-align: left; }
-.infer-table .num-wrap { width: 100%; min-width: 80px; }
 .infer-table .num-wrap input[type="number"] {
   text-align: center;
   background: rgba(255,255,255,0.05);
@@ -331,6 +354,84 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   border-color: #58a6ff;
 }
 .infer-result { font-size: 14px; color:#58a6ff; min-height:1.5em; }
+
+/* ===== 分类结果表格 ===== */
+.class-result-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+  table-layout: auto;
+}
+.class-result-table th, .class-result-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.class-result-table th { color: #888; font-weight: 500; }
+.class-result-table td.highlight { color: #58a6ff; font-weight: 600; }
+
+/* ===== 苹果风格开关 ===== */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.toggle-row label.toggle-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.toggle-switch input {
+  opacity: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  z-index: 1;
+  margin: 0;
+}
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.12);
+  border-radius: 13px;
+  cursor: pointer;
+  transition: background 0.25s;
+}
+.toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.25s;
+}
+.toggle-switch input:checked + .toggle-track {
+  background: #34c759;
+}
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(18px);
+}
+.toggle-switch:hover .toggle-track {
+  filter: brightness(1.1);
+}
 </style>
 </head>
 <body>
@@ -358,7 +459,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         <div class="layer-row" data-layer>
           <label>隐藏层 1</label>
           <span class="num-wrap">
-            <input type="number" value="1" min="1">
+            <input type="number" value="4" min="1">
             <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
             <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </span>
@@ -379,6 +480,15 @@ h1 { font-size: 24px; margin-bottom: 4px; }
     <!-- 训练参数 -->
     <div class="panel">
       <h3>⚙️ 训练参数</h3>
+
+      <div class="field">
+        <label>网络类型</label>
+        <select id="networkType">
+          <option value="regression" selected>回归网络（MSE）</option>
+          <option value="classification">分类网络（Softmax + Cross Entropy）</option>
+        </select>
+      </div>
+
       <div class="field">
         <label>学习率 (lr)</label>
         <span class="num-wrap">
@@ -405,6 +515,45 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         </select>
       </div>
 
+      <div class="toggle-row">
+        <label class="toggle-label" for="useEarlyStop">启用早停机制</label>
+        <span class="toggle-switch">
+          <input type="checkbox" id="useEarlyStop" checked>
+          <span class="toggle-track"></span>
+        </span>
+      </div>
+      <div class="toggle-row">
+        <label class="toggle-label" for="useDropout">启用 Dropout</label>
+        <span class="toggle-switch">
+          <input type="checkbox" id="useDropout">
+          <span class="toggle-track"></span>
+        </span>
+      </div>
+      <div class="field" id="dropoutField" style="display:none;">
+        <label>Dropout 比率 (0~1)</label>
+        <span class="num-wrap">
+          <input type="number" id="dropoutRate" value="0.2" step="0.05" min="0.05" max="0.8">
+          <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </span>
+      </div>
+
+      <div class="toggle-row">
+        <label class="toggle-label" for="useL2">启用 L2 正则化</label>
+        <span class="toggle-switch">
+          <input type="checkbox" id="useL2">
+          <span class="toggle-track"></span>
+        </span>
+      </div>
+      <div class="field" id="l2Field" style="display:none;">
+        <label>L2 正则系数 (λ)</label>
+        <span class="num-wrap">
+          <input type="number" id="l2Lambda" value="0.001" step="0.0001" min="0.000001">
+          <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </span>
+      </div>
+
       <button class="btn" id="trainBtn">▶ 开始训练</button>
 
       <div class="progress-wrap">
@@ -417,6 +566,24 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         <button class="btn" id="loadBtn">📂 加载模型</button>
       </div>
       <div class="status" id="status">就绪 — 请添加训练数据</div>
+    </div>
+
+    <!-- 预设示例 -->
+    <div class="panel">
+      <div class="example-grid">
+        <div class="example-col">
+          <h3>📦 回归示例</h3>
+          <button class="btn example-btn" id="exXOR">XOR 异或问题</button>
+          <button class="btn example-btn" id="exNonlinear">非线性函数拟合</button>
+          <button class="btn example-btn" id="exCurve">曲线拟合（正弦函数）</button>
+        </div>
+        <div class="example-col">
+          <h3>📦 分类示例</h3>
+          <button class="btn example-btn" id="exIris">🌸 鸢尾花分类（3 类）</button>
+          <button class="btn example-btn" id="exSpiral">🌀 螺旋分类（2 类）</button>
+          <button class="btn example-btn" id="exDigits">🔢 数字分类（4 类）</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -461,7 +628,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ============================================================
-//  神经网络训练器 — Pure JavaScript 版
+//  神经网络训练器 — 支持回归 / 分类 / Dropout / L2 正则
 // ============================================================
 
 // ===== DOM =====
@@ -473,6 +640,10 @@ const inferResult   = document.getElementById("inferResult");
 const dataBody      = document.getElementById("dataBody");
 const dataHead      = document.getElementById("dataHead");
 const layerConfig   = document.getElementById("layerConfig");
+const useDropoutCb  = document.getElementById("useDropout");
+const dropoutField  = document.getElementById("dropoutField");
+const useL2Cb       = document.getElementById("useL2");
+const l2Field       = document.getElementById("l2Field");
 
 let currentWeights = null;
 let lossHistory    = [];
@@ -499,6 +670,14 @@ const ACT = {
   }
 };
 
+// ===== Softmax =====
+function softmax(arr) {
+  const max = Math.max(...arr);
+  const exp = arr.map(v => Math.exp(v - max));
+  const sum = exp.reduce((a, b) => a + b, 0);
+  return exp.map(v => v / sum);
+}
+
 // ===== 工具：He 初始化 =====
 function heInit(fanIn) {
   const std = Math.sqrt(2.0 / fanIn);
@@ -523,7 +702,9 @@ function buildNetwork(layerSizes) {
 }
 
 // ===== 前向传播 =====
-function forward(net, inputs, activation, isTraining) {
+// isTraining 控制 Dropout 是否生效
+// networkType: "regression" | "classification"
+function forward(net, inputs, activation, isTraining, networkType, dropoutMask) {
   let current = inputs.slice();
   for (let l = 0; l < net.length; l++) {
     const layer = net[l];
@@ -541,31 +722,67 @@ function forward(net, inputs, activation, isTraining) {
         node.z = sum;
       }
       if (isOut) {
-        node.a = node.z;
+        if (networkType === "classification") {
+          // 输出层暂存 z，Softmax 在最后统一计算
+          node.a = node.z;
+        } else {
+          node.a = node.z;
+        }
       } else {
         node.a = ACT[activation].fn(node.z);
+        // Dropout（训练时）
+        if (isTraining && dropoutMask && dropoutMask[l] && dropoutMask[l][n] === 0) {
+          node.a = 0;
+        }
       }
       next.push(node.a);
     }
     current = next;
+    // 分类网络：输出层做 Softmax
+    if (isOut && networkType === "classification") {
+      const logits = next;
+      const probs = softmax(logits);
+      for (let n = 0; n < layer.length; n++) {
+        layer[n].a = probs[n];
+      }
+      current = probs.slice();
+    }
   }
   return current;
 }
 
-// ===== 训练（反向传播 + Adam） =====
-function train(network, trainData, epochs, lr, activation, onProgress) {
+// ===== 生成 Dropout Mask =====
+function generateDropoutMask(layerSizes, dropoutRate) {
+  const mask = {};
+  for (let l = 1; l < layerSizes.length - 1; l++) { // 不对输入层和输出层做 dropout
+    mask[l] = [];
+    for (let n = 0; n < layerSizes[l]; n++) {
+      mask[l].push(Math.random() > dropoutRate ? 1 : 0);
+    }
+  }
+  return mask;
+}
+
+// ===== 训练（反向传播 + Adam + 可选 Dropout/L2） =====
+function train(network, trainData, epochs, lr, activation, networkType, dropoutRate, l2Lambda, onProgress) {
   const numLayers = network.length;
   const numSamples = trainData.length;
   const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
+  const useEarlyStop = document.getElementById("useEarlyStop").checked;
   const patience = 80;
   let bestLoss = Infinity;
   let noImprove = 0;
+  const useDropout = dropoutRate > 0;
+  const useL2 = l2Lambda > 0;
 
   const mW = {}, vW = {}, mB = {}, vB = {};
   let step = 0;
 
-  function getDerivative(node, activation, isOutput) {
-    if (isOutput) return 1.0;
+  function getDerivative(node, activation, isOutput, networkType) {
+    if (isOutput) {
+      if (networkType === "classification") return 1.0; // 特殊处理后传
+      return 1.0;
+    }
     return ACT[activation].deriv(node.z);
   }
 
@@ -583,22 +800,46 @@ function train(network, trainData, epochs, lr, activation, onProgress) {
     for (const sample of trainData) {
       const x = sample[0], y = sample[1];
 
-      forward(network, x, activation, true);
+      // 生成 Dropout mask
+      let dropoutMask = null;
+      if (useDropout) {
+        dropoutMask = generateDropoutMask(network.map(l => l.length), dropoutRate);
+      }
+
+      forward(network, x, activation, true, networkType, dropoutMask);
 
       let loss = 0;
       const outputLayer = network[numLayers - 1];
-      for (let n = 0; n < outputLayer.length; n++) {
-        const diff = outputLayer[n].a - y[n];
-        loss += diff * diff;
+
+      if (networkType === "classification") {
+        // Cross Entropy Loss
+        for (let n = 0; n < outputLayer.length; n++) {
+          const p = Math.max(outputLayer[n].a, 1e-15);
+          loss -= y[n] * Math.log(p);
+        }
+      } else {
+        // MSE Loss
+        for (let n = 0; n < outputLayer.length; n++) {
+          const diff = outputLayer[n].a - y[n];
+          loss += diff * diff;
+        }
+        loss /= outputLayer.length;
       }
-      loss /= outputLayer.length;
       epochLoss += loss;
 
       // ===== 反向传播 =====
       let deltas = [];
-      for (let n = 0; n < outputLayer.length; n++) {
-        const d = (2.0 / outputLayer.length) * (outputLayer[n].a - y[n]) * getDerivative(outputLayer[n], activation, true);
-        deltas.push(d);
+      if (networkType === "classification") {
+        // Softmax + Cross Entropy 的梯度：a - y
+        for (let n = 0; n < outputLayer.length; n++) {
+          const d = (outputLayer[n].a - y[n]);
+          deltas.push(d);
+        }
+      } else {
+        for (let n = 0; n < outputLayer.length; n++) {
+          const d = (2.0 / outputLayer.length) * (outputLayer[n].a - y[n]) * getDerivative(outputLayer[n], activation, true, networkType);
+          deltas.push(d);
+        }
       }
 
       for (let l = numLayers - 1; l >= 1; l--) {
@@ -619,7 +860,11 @@ function train(network, trainData, epochs, lr, activation, onProgress) {
           // 权重梯度
           for (let i = 0; i < node.weights.length; i++) {
             const wKey = `${l},${n},${i}`;
-            const grad = d * prevLayer[i].a;
+            let grad = d * prevLayer[i].a;
+            // L2 正则化梯度
+            if (useL2) {
+              grad += l2Lambda * node.weights[i];
+            }
             if (!mW[wKey]) { mW[wKey] = 0; vW[wKey] = 0; }
             mW[wKey] = beta1 * mW[wKey] + (1 - beta1) * grad;
             vW[wKey] = beta2 * vW[wKey] + (1 - beta2) * grad * grad;
@@ -627,7 +872,7 @@ function train(network, trainData, epochs, lr, activation, onProgress) {
 
           // 传播到上一层
           for (let i = 0; i < prevLayer.length; i++) {
-            nextDeltas[i] += d * node.weights[i] * getDerivative(prevLayer[i], activation, false);
+            nextDeltas[i] += d * node.weights[i] * getDerivative(prevLayer[i], activation, false, networkType);
           }
         }
         deltas = nextDeltas;
@@ -648,23 +893,30 @@ function train(network, trainData, epochs, lr, activation, onProgress) {
       }
     }
 
-    const avgLoss = epochLoss / numSamples;
-    losses.push(avgLoss);
+    // 平均 loss
+    if (networkType === "classification") {
+      epochLoss /= numSamples;
+    } else {
+      epochLoss /= numSamples;
+    }
+    losses.push(epochLoss);
 
     if (epoch % 10 === 0 || epoch === 1) {
-      onProgress(epoch, avgLoss);
+      onProgress(epoch, epochLoss);
     }
 
-    // Early stopping
-    if (avgLoss < bestLoss - 1e-7) {
-      bestLoss = avgLoss;
-      noImprove = 0;
-    } else {
-      noImprove++;
-    }
-    if (noImprove >= patience) {
-      onProgress(epoch, avgLoss);
-      break;
+    // Early stopping（可选）
+    if (useEarlyStop) {
+      if (epochLoss < bestLoss - 1e-7) {
+        bestLoss = epochLoss;
+        noImprove = 0;
+      } else {
+        noImprove++;
+      }
+      if (noImprove >= patience) {
+        onProgress(epoch, epochLoss);
+        break;
+      }
     }
   }
 
@@ -694,6 +946,14 @@ function applyWeights(net, weights) {
 // ============================================================
 //  UI 交互逻辑
 // ============================================================
+
+// ===== Dropout / L2 复选框联动 =====
+useDropoutCb.addEventListener("change", () => {
+  dropoutField.style.display = useDropoutCb.checked ? "block" : "none";
+});
+useL2Cb.addEventListener("change", () => {
+  l2Field.style.display = useL2Cb.checked ? "block" : "none";
+});
 
 // ===== 暗色箭头按钮：事件委托 =====
 document.addEventListener("click", (e) => {
@@ -812,7 +1072,7 @@ document.getElementById("addLayerBtn").addEventListener("click", () => {
   div.innerHTML = `
     <label>隐藏层 ${idx}</label>
     <span class="num-wrap">
-      <input type="number" value="1" min="1">
+      <input type="number" value="4" min="1">
       <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </span>
@@ -919,12 +1179,15 @@ function drawLossChart(losses) {
     data = data.filter((_, i) => i % step === 0);
   }
 
+  const netType = document.getElementById("networkType").value;
+  const lossLabel = netType === "classification" ? "Cross Entropy Loss" : "MSE Loss";
+
   lossChart = new Chart(ctx, {
     type: "line",
     data: {
       labels: data.map((_, i) => i * Math.round(losses.length / data.length)),
       datasets: [{
-        label: "MSE Loss",
+        label: lossLabel,
         data: data,
         borderColor: "#58a6ff",
         backgroundColor: "rgba(88,166,255,0.08)",
@@ -969,7 +1232,7 @@ function drawLossChart(losses) {
           ticks: { color: "#666" }
         },
         y: {
-          title: { display: true, text: "MSE Loss", color: "#666" },
+          title: { display: true, text: lossLabel, color: "#666" },
           grid: { color: "rgba(255,255,255,0.04)" },
           ticks: { color: "#666" }
         }
@@ -977,6 +1240,265 @@ function drawLossChart(losses) {
     }
   });
 }
+
+// ============================================================
+//  预设示例
+// ============================================================
+
+// 示例1：XOR 异或
+document.getElementById("exXOR").addEventListener("click", () => {
+  // 清空现有数据
+  dataBody.innerHTML = "";
+  // 设置网络结构
+  document.getElementById("inputSize").value = 2;
+  document.getElementById("outputSize").value = 1;
+  // 设置隐藏层
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  if (existingLayers.length < 2) {
+    document.getElementById("addLayerBtn").click();
+  }
+  layerConfig.querySelectorAll("[data-layer] input").forEach((inp, i) => {
+    inp.value = i === 0 ? 4 : 4;
+  });
+  // 设置训练参数
+  document.getElementById("lr").value = 0.05;
+  document.getElementById("epochs").value = 2000;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("networkType").value = "regression";
+  // 不启用 dropout/l2
+  useDropoutCb.checked = false; dropoutField.style.display = "none";
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  // 添加 XOR 数据
+  syncInputSize();
+  const xorData = [
+    [0, 0, 0],
+    [0, 1, 1],
+    [1, 0, 1],
+    [1, 1, 0]
+  ];
+  for (const row of xorData) {
+    addDataRow(row);
+  }
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载 XOR 示例 — 点击「开始训练」";
+});
+
+// 示例2：非线性函数拟合 y = x²
+document.getElementById("exNonlinear").addEventListener("click", () => {
+  dataBody.innerHTML = "";
+  document.getElementById("inputSize").value = 1;
+  document.getElementById("outputSize").value = 1;
+  // 确保只有一个隐藏层
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) {
+    existingLayers[i].remove();
+  }
+  layerConfig.querySelector("[data-layer] input").value = 8;
+  document.getElementById("lr").value = 0.01;
+  document.getElementById("epochs").value = 3000;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("networkType").value = "regression";
+  useDropoutCb.checked = false; dropoutField.style.display = "none";
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  syncInputSize();
+  // 生成数据：y = x² 在 [-5, 5] 区间
+  for (let i = 0; i <= 20; i++) {
+    const x = -5 + i * (10 / 20);
+    const y = x * x;
+    addDataRow([x, y]);
+  }
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载非线性函数示例 (y = x²) — 点击「开始训练」";
+});
+
+// 示例3：正弦函数曲线拟合
+document.getElementById("exCurve").addEventListener("click", () => {
+  dataBody.innerHTML = "";
+  document.getElementById("inputSize").value = 1;
+  document.getElementById("outputSize").value = 1;
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) {
+    existingLayers[i].remove();
+  }
+  layerConfig.querySelector("[data-layer] input").value = 16;
+  document.getElementById("lr").value = 0.005;
+  document.getElementById("epochs").value = 5000;
+  document.getElementById("activation").value = "tanh";
+  document.getElementById("networkType").value = "regression";
+  useDropoutCb.checked = false; dropoutField.style.display = "none";
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  syncInputSize();
+  // 生成数据：y = sin(x) 在 [-2π, 2π]
+  for (let i = 0; i <= 50; i++) {
+    const x = -2 * Math.PI + i * (4 * Math.PI / 50);
+    const y = Math.sin(x);
+    addDataRow([x, y]);
+  }
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载曲线拟合示例 (y = sin(x)) — 点击「开始训练」";
+});
+
+// 示例4：鸢尾花分类（简化 3 类）
+document.getElementById("exIris").addEventListener("click", () => {
+  dataBody.innerHTML = "";
+  document.getElementById("inputSize").value = 4;
+  document.getElementById("outputSize").value = 3;
+  // 设置隐藏层：2 层
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) {
+    existingLayers[i].remove();
+  }
+  layerConfig.querySelector("[data-layer] input").value = 8;
+  document.getElementById("addLayerBtn").click();
+  layerConfig.querySelectorAll("[data-layer] input").forEach((inp, i) => {
+    inp.value = i === 0 ? 8 : 6;
+  });
+  document.getElementById("lr").value = 0.03;
+  document.getElementById("epochs").value = 3000;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("networkType").value = "classification";
+  useDropoutCb.checked = true; dropoutField.style.display = "block";
+  document.getElementById("dropoutRate").value = 0.2;
+  useL2Cb.checked = true; l2Field.style.display = "block";
+  document.getElementById("l2Lambda").value = 0.001;
+  syncInputSize();
+  // 鸢尾花简化数据集（花萼长、花萼宽、花瓣长、花瓣宽 → One-Hot 类别）
+  const irisData = [
+    [5.1, 3.5, 1.4, 0.2,  1,0,0],
+    [4.9, 3.0, 1.4, 0.2,  1,0,0],
+    [4.7, 3.2, 1.3, 0.2,  1,0,0],
+    [4.6, 3.1, 1.5, 0.2,  1,0,0],
+    [5.0, 3.6, 1.4, 0.2,  1,0,0],
+    [5.4, 3.9, 1.7, 0.4,  1,0,0],
+    [4.6, 3.4, 1.4, 0.3,  1,0,0],
+    [5.0, 3.4, 1.5, 0.2,  1,0,0],
+    [4.4, 2.9, 1.4, 0.2,  1,0,0],
+    [4.9, 3.1, 1.5, 0.1,  1,0,0],
+    [7.0, 3.2, 4.7, 1.4,  0,1,0],
+    [6.4, 3.2, 4.5, 1.5,  0,1,0],
+    [6.9, 3.1, 4.9, 1.5,  0,1,0],
+    [5.5, 2.3, 4.0, 1.3,  0,1,0],
+    [6.5, 2.8, 4.6, 1.5,  0,1,0],
+    [5.7, 2.8, 4.5, 1.3,  0,1,0],
+    [6.3, 3.3, 4.7, 1.6,  0,1,0],
+    [4.9, 2.4, 3.3, 1.0,  0,1,0],
+    [6.6, 2.9, 4.6, 1.3,  0,1,0],
+    [5.2, 2.7, 3.9, 1.4,  0,1,0],
+    [6.3, 3.3, 6.0, 2.5,  0,0,1],
+    [5.8, 2.7, 5.1, 1.9,  0,0,1],
+    [7.1, 3.0, 5.9, 2.1,  0,0,1],
+    [6.3, 2.9, 5.6, 1.8,  0,0,1],
+    [6.5, 3.0, 5.8, 2.2,  0,0,1],
+    [7.6, 3.0, 6.6, 2.1,  0,0,1],
+    [4.9, 2.5, 4.5, 1.7,  0,0,1],
+    [7.3, 2.9, 6.3, 1.8,  0,0,1],
+    [6.7, 2.5, 5.8, 1.8,  0,0,1],
+    [7.2, 3.6, 6.1, 2.5,  0,0,1],
+  ];
+  for (const row of irisData) {
+    addDataRow(row);
+  }
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载鸢尾花分类示例（3 类）— 点击「开始训练」";
+});
+
+// 示例5：螺旋分类（2 类）
+document.getElementById("exSpiral").addEventListener("click", () => {
+  dataBody.innerHTML = "";
+  document.getElementById("inputSize").value = 2;
+  document.getElementById("outputSize").value = 2;
+  // 设置隐藏层：2 层
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) {
+    existingLayers[i].remove();
+  }
+  layerConfig.querySelector("[data-layer] input").value = 16;
+  document.getElementById("addLayerBtn").click();
+  layerConfig.querySelectorAll("[data-layer] input").forEach((inp, i) => {
+    inp.value = i === 0 ? 16 : 8;
+  });
+  document.getElementById("lr").value = 0.05;
+  document.getElementById("epochs").value = 3000;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("networkType").value = "classification";
+  useDropoutCb.checked = true; dropoutField.style.display = "block";
+  document.getElementById("dropoutRate").value = 0.2;
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  syncInputSize();
+  // 生成螺旋数据（2 个类别）
+  const nPerClass = 50;
+  const spiralData = [];
+  for (let c = 0; c < 2; c++) {
+    for (let i = 0; i < nPerClass; i++) {
+      const t = (i / nPerClass) * 2 * Math.PI + c * Math.PI;
+      const r = 0.3 + (i / nPerClass) * 2.5;
+      const noiseX = (Math.random() - 0.5) * 0.3;
+      const noiseY = (Math.random() - 0.5) * 0.3;
+      const x = r * Math.cos(t) + noiseX;
+      const y = r * Math.sin(t) + noiseY;
+      spiralData.push([x, y, c === 0 ? 1 : 0, c === 0 ? 0 : 1]);
+    }
+  }
+  for (const row of spiralData) {
+    addDataRow(row);
+  }
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载螺旋分类示例（2 类）— 点击「开始训练」";
+});
+
+// 示例6：数字分类（4 类：0/1/2/3，基于 2D 特征）
+document.getElementById("exDigits").addEventListener("click", () => {
+  dataBody.innerHTML = "";
+  document.getElementById("inputSize").value = 2;
+  document.getElementById("outputSize").value = 4;
+  // 设置隐藏层：2 层
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) {
+    existingLayers[i].remove();
+  }
+  layerConfig.querySelector("[data-layer] input").value = 12;
+  document.getElementById("addLayerBtn").click();
+  layerConfig.querySelectorAll("[data-layer] input").forEach((inp, i) => {
+    inp.value = i === 0 ? 12 : 8;
+  });
+  document.getElementById("lr").value = 0.03;
+  document.getElementById("epochs").value = 3000;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("networkType").value = "classification";
+  useDropoutCb.checked = true; dropoutField.style.display = "block";
+  document.getElementById("dropoutRate").value = 0.15;
+  useL2Cb.checked = true; l2Field.style.display = "block";
+  document.getElementById("l2Lambda").value = 0.0005;
+  syncInputSize();
+  // 生成 4 个数字类别的聚类数据
+  const digitsData = [];
+  const clusterCenters = [
+    [-2, -2],  // 类 0
+    [ 2, -2],  // 类 1
+    [-2,  2],  // 类 2
+    [ 2,  2],  // 类 3
+  ];
+  for (let c = 0; c < 4; c++) {
+    for (let i = 0; i < 30; i++) {
+      const nx = (Math.random() - 0.5) * 1.8;
+      const ny = (Math.random() - 0.5) * 1.8;
+      const oneHot = [0, 0, 0, 0];
+      oneHot[c] = 1;
+      digitsData.push([clusterCenters[c][0] + nx, clusterCenters[c][1] + ny, ...oneHot]);
+    }
+  }
+  for (const row of digitsData) {
+    addDataRow(row);
+  }
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载数字分类示例（4 类）— 点击「开始训练」";
+});
 
 // ===== 训练按钮 =====
 trainBtn.addEventListener("click", async () => {
@@ -992,17 +1514,36 @@ trainBtn.addEventListener("click", async () => {
   statusEl.textContent = "准备训练...";
   clearLossChart();
 
-  const layerSizes  = getLayerSizes();
-  const trainData   = getTrainData();
-  const lr          = parseFloat(document.getElementById("lr").value);
-  const epochs      = parseInt(document.getElementById("epochs").value);
-  const activation  = document.getElementById("activation").value;
+  const layerSizes   = getLayerSizes();
+  const trainData    = getTrainData();
+  const lr           = parseFloat(document.getElementById("lr").value);
+  const epochs       = parseInt(document.getElementById("epochs").value);
+  const activation   = document.getElementById("activation").value;
+  const networkType  = document.getElementById("networkType").value;
+  const dropoutRate  = useDropoutCb.checked ? parseFloat(document.getElementById("dropoutRate").value) : 0;
+  const l2Lambda     = useL2Cb.checked ? parseFloat(document.getElementById("l2Lambda").value) : 0;
 
   if (trainData.length === 0) {
     statusEl.textContent = "⚠️ 请先添加训练数据";
     trainBtn.disabled = false;
     isTraining = false;
     return;
+  }
+
+  // 分类网络：检查输出层是否为 one-hot
+  if (networkType === "classification") {
+    const outSize = layerSizes[layerSizes.length - 1];
+    const hasOneHot = trainData.every(([, y]) => {
+      return y.length === outSize &&
+        y.every(v => v === 0 || v === 1) &&
+        y.reduce((a, b) => a + b, 0) === 1;
+    });
+    if (!hasOneHot) {
+      statusEl.textContent = "⚠️ 分类网络要求输出为 One-Hot 编码（如 [1,0,0]）";
+      trainBtn.disabled = false;
+      isTraining = false;
+      return;
+    }
   }
 
   await new Promise(r => setTimeout(r, 50));
@@ -1012,10 +1553,11 @@ trainBtn.addEventListener("click", async () => {
   const net = buildNetwork(layerSizes);
   const startTime = performance.now();
 
-  const losses = train(net, trainData, epochs, lr, activation, (epoch, loss) => {
+  const losses = train(net, trainData, epochs, lr, activation, networkType, dropoutRate, l2Lambda, (epoch, loss) => {
     const pct = Math.min(100, Math.round(epoch / epochs * 100));
     progressFill.style.width = pct + "%";
-    progressText.textContent = `${pct}%  (Epoch ${epoch}/${epochs}, MSE: ${loss.toFixed(8)})`;
+    const lossLabel = networkType === "classification" ? "CE" : "MSE";
+    progressText.textContent = `${pct}%  (Epoch ${epoch}/${epochs}, ${lossLabel}: ${loss.toFixed(8)})`;
     statusEl.textContent = `训练中... Epoch ${epoch}`;
   });
 
@@ -1031,7 +1573,7 @@ trainBtn.addEventListener("click", async () => {
   drawLossChart(losses);
 });
 
-// ===== 收集全部训练数据（含当前表格内容） =====
+// ===== 收集全部训练数据 =====
 function getAllTrainData() {
   const n  = parseInt(document.getElementById("inputSize").value) || 1;
   const out = parseInt(document.getElementById("outputSize").value) || 1;
@@ -1048,29 +1590,31 @@ function getAllTrainData() {
 
 // ===== 还原全部训练数据到表格 =====
 function setAllTrainData(rawData, inputSize, outputSize) {
-  // 清空现有数据
   dataBody.innerHTML = "";
-  // 设置输入输出大小
   document.getElementById("inputSize").value = inputSize;
   document.getElementById("outputSize").value = outputSize;
   syncInputSize();
-  // 逐行添加
   for (const row of rawData) {
     addDataRow(row);
   }
   updateInputOutputLock();
 }
 
-// ===== 构建完整的模型 JSON（含全部配置） =====
+// ===== 构建完整的模型 JSON =====
 function buildModelJSON() {
   return {
-    version: 1,
+    version: 2,
     savedAt: new Date().toISOString(),
     config: {
       layerSizes: getLayerSizes(),
       lr: parseFloat(document.getElementById("lr").value),
       epochs: parseInt(document.getElementById("epochs").value),
       activation: document.getElementById("activation").value,
+      networkType: document.getElementById("networkType").value,
+      useDropout: useDropoutCb.checked,
+      dropoutRate: useDropoutCb.checked ? parseFloat(document.getElementById("dropoutRate").value) : undefined,
+      useL2: useL2Cb.checked,
+      l2Lambda: useL2Cb.checked ? parseFloat(document.getElementById("l2Lambda").value) : undefined,
     },
     weights: currentWeights,
     trainData: getAllTrainData(),
@@ -1082,10 +1626,20 @@ function buildModelJSON() {
 function restoreFromModelJSON(parsed) {
   const cfg = parsed.config;
 
-  // 恢复训练参数
   document.getElementById("lr").value = cfg.lr;
   document.getElementById("epochs").value = cfg.epochs;
   document.getElementById("activation").value = cfg.activation;
+  document.getElementById("networkType").value = cfg.networkType || "regression";
+
+  // Dropout
+  useDropoutCb.checked = cfg.useDropout || false;
+  dropoutField.style.display = useDropoutCb.checked ? "block" : "none";
+  if (cfg.dropoutRate !== undefined) document.getElementById("dropoutRate").value = cfg.dropoutRate;
+
+  // L2
+  useL2Cb.checked = cfg.useL2 || false;
+  l2Field.style.display = useL2Cb.checked ? "block" : "none";
+  if (cfg.l2Lambda !== undefined) document.getElementById("l2Lambda").value = cfg.l2Lambda;
 
   // 恢复网络结构 & 权重
   const layerSizes = cfg.layerSizes;
@@ -1134,12 +1688,10 @@ document.getElementById("saveBtn").addEventListener("click", () => {
   const blob = new Blob([jsonStr], { type: "application/json" });
   const url = URL.createObjectURL(blob);
 
-  // 生成默认文件名
   const ts = new Date();
   const tsStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,"0")}${String(ts.getDate()).padStart(2,"0")}_${String(ts.getHours()).padStart(2,"0")}${String(ts.getMinutes()).padStart(2,"0")}${String(ts.getSeconds()).padStart(2,"0")}`;
   const filename = `nn_model_${tsStr}.json`;
 
-  // 创建隐藏的 <a> 触发下载
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
@@ -1165,7 +1717,6 @@ document.getElementById("loadBtn").addEventListener("click", () => {
       try {
         const parsed = JSON.parse(e.target.result);
 
-        // 校验
         if (!parsed.config || !parsed.weights || !Array.isArray(parsed.config.layerSizes)) {
           statusEl.textContent = "⚠️ 文件格式不正确，无法识别为模型文件";
           return;
@@ -1197,16 +1748,31 @@ document.getElementById("inferBtn").addEventListener("click", () => {
 
   const layerSizes = getLayerSizes();
   const activation = document.getElementById("activation").value;
+  const networkType = document.getElementById("networkType").value;
 
   const net = buildNetwork(layerSizes);
   applyWeights(net, currentWeights);
 
-  const output = forward(net, inputs, activation, false);
+  // 推理时不使用 Dropout
+  const output = forward(net, inputs, activation, false, networkType, null);
 
-  inferResult.innerHTML = `🎯 预测输出: [${output.map(v => v.toFixed(8)).join(", ")}]`;
+  if (networkType === "classification") {
+    // 分类：显示每个类别的概率 + 预测类别
+    let html = `<table class="class-result-table"><thead><tr><th>类别</th><th>概率</th></tr></thead><tbody>`;
+    let maxIdx = 0;
+    for (let i = 0; i < output.length; i++) {
+      if (output[i] > output[maxIdx]) maxIdx = i;
+      html += `<tr><td>类别 ${i}</td><td>${output[i].toFixed(8)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    html += `<br>🎯 预测类别: <b>类别 ${maxIdx}</b>（概率 ${output[maxIdx].toFixed(8)}）`;
+    inferResult.innerHTML = html;
+  } else {
+    inferResult.innerHTML = `🎯 预测输出: [${output.map(v => v.toFixed(8)).join(", ")}]`;
+  }
 });
 
-// ===== 初始仅显示坐标轴网格，不画曲线 =====
+// ===== 初始图表 =====
 (function() {
   const ctx = document.getElementById("lossChart").getContext("2d");
   lossChart = new Chart(ctx, {
@@ -1214,7 +1780,7 @@ document.getElementById("inferBtn").addEventListener("click", () => {
     data: {
       labels: [],
       datasets: [{
-        label: "MSE Loss",
+        label: "Loss",
         data: [],
         borderColor: "#58a6ff",
         backgroundColor: "rgba(88,166,255,0.08)",
