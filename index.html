@@ -47,11 +47,9 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   body { padding: 16px 10px; }
   h1 { font-size: 20px; }
   .subtitle { font-size: 12px; }
-  .btn, .data-edit-actions .btn, .decision-controls .btn { font-size: 12px; padding: 9px 12px; }
+  .btn, .data-edit-actions .btn { font-size: 12px; padding: 9px 12px; }
   .data-edit-panel { max-height: none; }
   .data-edit-scroll { max-height: 220px; }
-  .decision-controls { flex-direction: column; align-items: stretch; }
-  .decision-controls .btn { width: 100%; }
   .data-edit-actions { flex-direction: column; }
   .btn-row { flex-direction: column; }
   .btn-row .btn { width: 100%; }
@@ -543,18 +541,6 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   background: rgba(0,0,0,0.3);
   cursor: crosshair;
 }
-.decision-controls {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.decision-controls .btn {
-  width: auto;
-  padding: 6px 14px;
-  font-size: 12px;
-}
 .decision-msg {
   font-size: 12px;
   color: #666;
@@ -861,12 +847,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   <div class="decision-boundary-panel" id="decisionBoundaryPanel" style="display:none;">
     <h3>🗺️ 决策边界可视化 (Decision Boundary)</h3>
     <canvas id="decisionCanvas"></canvas>
-    <div class="decision-controls">
-      <button class="btn" id="drawBoundaryBtn">🖌️ 绘制决策边界</button>
-      <button class="btn" id="clearBoundaryBtn">🗑️ 清除</button>
-    </div>
     <div class="decision-msg" id="decisionMsg">
-      仅适用于输入维度为 2 的分类任务。请先训练网络，然后点击「绘制决策边界」。
+      仅适用于输入维度为 2 的分类任务。训练完成后将自动绘制决策边界。
     </div>
   </div>
 
@@ -1884,20 +1866,15 @@ function drawDecisionBoundary(net, trainData, testData, activation, networkType,
     const py = H - ((y - (yMin - marginY)) / (yMax - yMin + 2 * marginY)) * H;
     ctxDecision.beginPath();
     ctxDecision.arc(px, py, isTest ? 5 : 6, 0, Math.PI * 2);
-    ctxDecision.fillStyle = getClassColor(classIdx, 1.0);
-    ctxDecision.fill();
-    ctxDecision.strokeStyle = isTest ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.8)";
-    ctxDecision.lineWidth = isTest ? 1 : 2;
-    ctxDecision.stroke();
     if (isTest) {
-      // 测试集用 X 标记
-      ctxDecision.beginPath();
-      ctxDecision.moveTo(px - 3, py - 3);
-      ctxDecision.lineTo(px + 3, py + 3);
-      ctxDecision.moveTo(px + 3, py - 3);
-      ctxDecision.lineTo(px - 3, py + 3);
-      ctxDecision.strokeStyle = "rgba(255,255,255,0.7)";
-      ctxDecision.lineWidth = 1.5;
+      ctxDecision.strokeStyle = getClassColor(classIdx, 1.0);
+      ctxDecision.lineWidth = 2;
+      ctxDecision.stroke();
+    } else {
+      ctxDecision.fillStyle = getClassColor(classIdx, 1.0);
+      ctxDecision.fill();
+      ctxDecision.strokeStyle = "rgba(255,255,255,0.8)";
+      ctxDecision.lineWidth = 2;
       ctxDecision.stroke();
     }
   };
@@ -1956,63 +1933,13 @@ function drawDecisionBoundary(net, trainData, testData, activation, networkType,
 
   ctxDecision.beginPath();
   ctxDecision.arc(legendX + 6, legendBase + 22, 5, 0, Math.PI * 2);
-  ctxDecision.strokeStyle = "rgba(255,255,255,0.5)";
-  ctxDecision.lineWidth = 1.5;
-  ctxDecision.stroke();
-  ctxDecision.moveTo(legendX + 3, legendBase + 19);
-  ctxDecision.lineTo(legendX + 9, legendBase + 25);
-  ctxDecision.moveTo(legendX + 9, legendBase + 19);
-  ctxDecision.lineTo(legendX + 3, legendBase + 25);
-  ctxDecision.strokeStyle = "rgba(255,255,255,0.5)";
+  ctxDecision.strokeStyle = "rgba(255,255,255,0.8)";
+  ctxDecision.lineWidth = 2;
   ctxDecision.stroke();
   ctxDecision.fillStyle = "#ccc";
   ctxDecision.fillText("测试集", legendX + 18, legendBase + 26);
 }
 
-// 决策边界按钮
-document.getElementById("drawBoundaryBtn").addEventListener("click", () => {
-  if (!currentWeights) {
-    statusEl.textContent = "⚠️ 请先训练网络";
-    return;
-  }
-  const inputSize = parseInt(document.getElementById("inputSize").value) || 1;
-  if (inputSize !== 2) {
-    statusEl.textContent = "⚠️ 决策边界可视化仅支持输入维度为 2 的网络";
-    return;
-  }
-  const networkType = document.getElementById("networkType").value;
-  if (networkType !== "classification") {
-    statusEl.textContent = "⚠️ 决策边界可视化仅适用于分类任务";
-    return;
-  }
-
-  const layerSizes  = getLayerSizes();
-  const allRaw = getAllRawData();
-  const n  = parseInt(document.getElementById("inputSize").value) || 1;
-  const out = parseInt(document.getElementById("outputSize").value) || 1;
-  const allData = allRaw.map(r => [r.slice(0, n), r.slice(n, n + out)]);
-  const activation = document.getElementById("activation").value;
-  const numClasses = out;
-
-  const net = buildNetwork(layerSizes);
-  applyWeights(net, currentWeights);
-
-  resizeDecisionCanvas();
-  // 使用全部数据（含测试集）绘制
-  drawDecisionBoundary(net, allData, null, activation, networkType, numClasses);
-  document.getElementById("decisionMsg").textContent =
-    "✅ 决策边界已绘制。背景色表示模型预测的类别，实心圆 = 训练样本，空心圆 = 测试样本。";
-  statusEl.textContent = "✅ 决策边界绘制完成";
-});
-
-document.getElementById("clearBoundaryBtn").addEventListener("click", () => {
-  resizeDecisionCanvas();
-  const W = decisionCanvas.width;
-  const H = decisionCanvas.height;
-  ctxDecision.clearRect(0, 0, W, H);
-  document.getElementById("decisionMsg").textContent =
-    "仅适用于输入维度为 2 的分类任务。请先训练网络，然后点击「绘制决策边界」。";
-});
 
 // ============================================================
 //  预设示例
@@ -2275,6 +2202,10 @@ trainBtn.addEventListener("click", async () => {
   // 隐藏旧的结果面板
   document.getElementById("confusionPanel").style.display = "none";
   document.getElementById("decisionBoundaryPanel").style.display = "none";
+  resizeDecisionCanvas();
+  ctxDecision.clearRect(0, 0, decisionCanvas.width, decisionCanvas.height);
+  document.getElementById("decisionMsg").textContent =
+    "仅适用于输入维度为 2 的分类任务。训练完成后将自动绘制决策边界。";
 
   const layerSizes   = getLayerSizes();
   const allRawData   = getAllRawData();
@@ -2365,18 +2296,20 @@ trainBtn.addEventListener("click", async () => {
   drawLossChart(results.losses, results.testLosses, results.accuracies, networkType);
 
   // ===== 分类任务：显示混淆矩阵 + 决策边界 =====
-  if (networkType === "classification" && testData.length > 0) {
+  if (networkType === "classification") {
     const numClasses = out;
-    const cm = computeConfusionMatrix(net, testData, networkType, activation, numClasses);
-    renderConfusionMatrix(cm.matrix, numClasses);
-    document.getElementById("confusionPanel").style.display = "block";
+    if (testData.length > 0) {
+      const cm = computeConfusionMatrix(net, testData, networkType, activation, numClasses);
+      renderConfusionMatrix(cm.matrix, numClasses);
+      document.getElementById("confusionPanel").style.display = "block";
+    }
 
     // 如果输入维度为 2，显示决策边界面板
     if (n === 2) {
       document.getElementById("decisionBoundaryPanel").style.display = "block";
       drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses);
       document.getElementById("decisionMsg").textContent =
-        "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心 X = 测试集。";
+        "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心圆 = 测试集。";
     }
   }
 });
