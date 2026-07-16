@@ -264,8 +264,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 /* ===== 示例按钮网格 ===== */
 .example-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
 }
 .example-col {
   display: flex;
@@ -888,6 +888,51 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
       </div>
 
       <div class="field">
+        <label>网络架构</label>
+        <select id="architecture">
+          <option value="mlp" selected>MLP（全连接）</option>
+          <option value="cnn">CNN（一维卷积）</option>
+          <option value="rnn">RNN（循环网络）</option>
+          <option value="attention">Attention（自注意力）</option>
+        </select>
+      </div>
+      <div id="archConfigs">
+        <div class="field arch-config" id="cnnConfig">
+          <label>卷积核大小</label>
+          <span class="num-wrap">
+            <input type="number" id="cnnKernel" value="3" min="2" max="8">
+          </span>
+        </div>
+        <div class="field arch-config" id="cnnConfig2">
+          <label>卷积核数量</label>
+          <span class="num-wrap">
+            <input type="number" id="cnnFilters" value="8" min="1" max="64">
+          </span>
+        </div>
+        <div class="field arch-config" id="rnnConfig">
+          <label>RNN 隐藏维度</label>
+          <span class="num-wrap">
+            <input type="number" id="rnnHidden" value="8" min="2" max="64">
+          </span>
+        </div>
+        <div class="field arch-config" id="attnConfig">
+          <label>嵌入维度</label>
+          <span class="num-wrap">
+            <input type="number" id="attnEmbed" value="16" min="2" max="64">
+          </span>
+        </div>
+        <div class="field arch-config" id="attnConfig2">
+          <label>注意力头数</label>
+          <span class="num-wrap">
+            <input type="number" id="attnHeads" value="2" min="1" max="8">
+          </span>
+        </div>
+      </div>
+      <style>
+        .arch-config { display: none; }
+      </style>
+
+      <div class="field">
         <label>优化器</label>
         <select id="optimizer">
           <option value="adam" selected>Adam</option>
@@ -1041,7 +1086,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
     </div>
   </div>
 
-  <!-- 预设示例（移至训练数据下方） -->
+  <!-- 预设示例 -->
   <div class="panel" id="examplePanel">
     <div class="example-grid">
       <div class="example-col">
@@ -1055,6 +1100,12 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
         <button class="btn example-btn" id="exIris">🌸 鸢尾花分类（3 类）</button>
         <button class="btn example-btn" id="exSpiral">🌀 螺旋分类（2 类）</button>
         <button class="btn example-btn" id="exDigits">🔢 数字分类（4 类）</button>
+      </div>
+      <div class="example-col">
+        <h3>📦 架构示例</h3>
+        <button class="btn example-btn" id="exCnn">🔍 CNN 信号峰值检测</button>
+        <button class="btn example-btn" id="exRnn">🔄 RNN 序列预测</button>
+        <button class="btn example-btn" id="exAttention">🎯 Attention 波形分类</button>
       </div>
     </div>
   </div>
@@ -1092,7 +1143,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
 
   <!-- 网络结构可视化 -->
   <div class="net-struct-panel" id="netStructPanel" style="display:none;">
-    <h3>🔗 网络结构可视化 (Network Architecture)</h3>
+    <h3 id="netStructTitle">🔗 网络结构可视化</h3>
     <div class="net-struct-hint">🖱 拖拽平移 · 悬停神经元查看参数</div>
     <div class="net-struct-tooltip" id="netStructTooltip"></div>
     <canvas id="netStructCanvas"></canvas>
@@ -1285,6 +1336,591 @@ function heInit(fanIn) {
   const std = Math.sqrt(2.0 / fanIn);
   return (rng() * 2 - 1) * std;
 }
+function xavierInit(fanIn, fanOut) {
+  const std = Math.sqrt(2.0 / (fanIn + fanOut));
+  return (rng() * 2 - 1) * std;
+}
+
+// ============================================================
+//  网络架构模块：MLP / CNN / RNN / Attention
+// ============================================================
+let archParams = null;  // 架构权重和缓存 { type, ... }
+let archAccGrad = null;  // 梯度累积
+let archOptimStates = {}; // 优化器状态
+
+// ===== 读取架构配置 =====
+function getArchitectureType() {
+  const sel = document.getElementById("architecture");
+  return sel ? sel.value : "mlp";
+}
+
+function getArchFeatureDim(inputSize) {
+  const arch = getArchitectureType();
+  if (arch === "cnn") {
+    const kernel = Math.min(parseInt(document.getElementById("cnnKernel").value) || 3, inputSize - 1);
+    const filters = parseInt(document.getElementById("cnnFilters").value) || 8;
+    return filters * Math.max(1, inputSize - kernel + 1);
+  } else if (arch === "rnn") {
+    return parseInt(document.getElementById("rnnHidden").value) || 8;
+  } else if (arch === "attention") {
+    return parseInt(document.getElementById("attnEmbed").value) || 16;
+  }
+  return inputSize; // mlp
+}
+
+// ===== CNN 1D 模块 =====
+function cnnInit(inputSize) {
+  const kernel = Math.min(parseInt(document.getElementById("cnnKernel").value) || 3, inputSize - 1);
+  const filters = parseInt(document.getElementById("cnnFilters").value) || 8;
+  const w = []; // w[f][k] = weight scalar (single channel)
+  const b = new Array(filters).fill(0);
+  for (let f = 0; f < filters; f++) {
+    w[f] = [];
+    for (let k = 0; k < kernel; k++) w[f].push(heInit(kernel));
+  }
+  return { type: "cnn", w, b, kernel, filters, inputSize, cache: null };
+}
+
+function cnnForward(x, p) {
+  const { w, b, kernel, filters, inputSize } = p;
+  const inLen = x.length;
+  const outLen = inLen - kernel + 1;
+  if (outLen <= 0) { p.cache = null; return []; }
+  const preAct = []; // [f][pos]
+  const feature = [];
+  for (let f = 0; f < filters; f++) {
+    preAct[f] = [];
+    for (let i = 0; i < outLen; i++) {
+      let s = b[f];
+      for (let k = 0; k < kernel; k++) s += w[f][k] * x[i + k];
+      preAct[f][i] = s;
+      feature.push(ACT.leaky_relu.fn(s));
+    }
+  }
+  p.cache = { x, preAct };
+  return feature;
+}
+
+function cnnBackward(deltas, p) {
+  const { w, b, kernel, filters, cache } = p;
+  const { x, preAct } = cache;
+  if (!x) {
+    return { gradW: Array(filters).fill(null).map(() => Array(kernel).fill(0)),
+             gradB: Array(filters).fill(0), gradX: Array(x ? x.length : 0).fill(0) };
+  }
+  const inLen = x.length;
+  const outLen = inLen - kernel + 1;
+  const gradW = Array.from({length: filters}, () => Array(kernel).fill(0));
+  const gradB = Array(filters).fill(0);
+  const gradX = Array(inLen).fill(0);
+  for (let f = 0; f < filters; f++) {
+    for (let i = 0; i < outLen; i++) {
+      const idx = f * outLen + i;
+      const dAct = preAct[f][i] > 0 ? 1.0 : 0.01;
+      const d = deltas[idx] * dAct;
+      gradB[f] += d;
+      for (let k = 0; k < kernel; k++) {
+        gradW[f][k] += d * x[i + k];
+        gradX[i + k] += d * w[f][k];
+      }
+    }
+  }
+  p.cache = null;
+  return { gradW, gradB, gradX };
+}
+
+// ===== RNN 模块 =====
+function rnnInit(inputSize) {
+  const hiddenDim = parseInt(document.getElementById("rnnHidden").value) || 8;
+  const wx = Array.from({length: hiddenDim}, () => heInit(1));     // (hiddenDim, 1) weight for input
+  const wh = Array.from({length: hiddenDim}, () => Array.from({length: hiddenDim}, () => heInit(hiddenDim)));
+  const b = Array(hiddenDim).fill(0);
+  return { type: "rnn", wx, wh, b, hiddenDim, cache: null };
+}
+
+function rnnForward(x, p) {
+  const { wx, wh, b, hiddenDim } = p;
+  const seqLen = x.length;
+  // Process each feature as a time step (input_dim = 1)
+  let h = Array(hiddenDim).fill(0);
+  const hs = [h.slice()]; // all hidden states for BPTT
+  for (let t = 0; t < seqLen; t++) {
+    const hNext = [];
+    for (let d = 0; d < hiddenDim; d++) {
+      let s = b[d] + wx[d] * x[t];
+      for (let dd = 0; dd < hiddenDim; dd++) s += wh[d][dd] * h[dd];
+      hNext.push(Math.tanh(Math.max(-50, Math.min(50, s))));
+    }
+    h = hNext;
+    hs.push(h.slice());
+  }
+  p.cache = { x, hs, wh };
+  return h; // return last hidden state
+}
+
+function rnnBackward(deltas, p) {
+  const { wx, wh, hiddenDim, cache } = p;
+  if (!cache) {
+    return { gradWx: Array(hiddenDim).fill(0), gradWh: Array.from({length: hiddenDim}, () => Array(hiddenDim).fill(0)),
+             gradB: Array(hiddenDim).fill(0), gradX: Array(0).fill(0) };
+  }
+  const { x, hs, wh: wc } = cache;
+  const seqLen = x.length;
+  // BPTT: process reverse
+  let dh = deltas.slice(); // gradient w.r.t. last hidden state
+  const gradWx = Array(hiddenDim).fill(0);
+  const gradWh = Array.from({length: hiddenDim}, () => Array(hiddenDim).fill(0));
+  const gradB = Array(hiddenDim).fill(0);
+  const gradX = Array(seqLen).fill(0);
+  const gradH = Array(seqLen + 1).fill(null).map(() => Array(hiddenDim).fill(0));
+  gradH[seqLen] = dh.slice();
+
+  for (let t = seqLen; t >= 1; t--) {
+    dh = gradH[t];
+    const hPrev = hs[t - 1];
+    const hCurr = hs[t];
+    for (let d = 0; d < hiddenDim; d++) {
+      // tanh deriv of hCurr[d]
+      const dTanh = (1 - hCurr[d] * hCurr[d]) * dh[d];
+      gradB[d] += dTanh;
+      gradX[t - 1] += dTanh * wx[d];
+      gradWx[d] += dTanh * x[t - 1];
+      for (let dd = 0; dd < hiddenDim; dd++) {
+        gradWh[d][dd] += dTanh * hPrev[dd];
+        gradH[t - 1][dd] += dTanh * wc[d][dd];
+      }
+    }
+  }
+  p.cache = null;
+  return { gradWx, gradWh, gradB, gradX };
+}
+
+// ===== Attention (Self-Attention) 模块 =====
+function attnInit(inputSize) {
+  const embedDim = parseInt(document.getElementById("attnEmbed").value) || 16;
+  const numHeads = Math.min(parseInt(document.getElementById("attnHeads").value) || 2, embedDim);
+  // Ensure embedDim divisible by numHeads
+  const dPerHead = Math.floor(embedDim / numHeads);
+  const effEmbed = dPerHead * numHeads;
+  // Q, K, V projection (inputSize→effEmbed each) + output projection (effEmbed→effEmbed)
+  const wq = Array.from({length: effEmbed}, () => Array.from({length: inputSize}, () => xavierInit(inputSize, effEmbed)));
+  const wk = Array.from({length: effEmbed}, () => Array.from({length: inputSize}, () => xavierInit(inputSize, effEmbed)));
+  const wv = Array.from({length: effEmbed}, () => Array.from({length: inputSize}, () => xavierInit(inputSize, effEmbed)));
+  const wo = Array.from({length: effEmbed}, () => Array.from({length: effEmbed}, () => xavierInit(effEmbed, effEmbed)));
+  return { type: "attention", wq, wk, wv, wo, embedDim: effEmbed, numHeads, dPerHead, inputSize, cache: null };
+}
+
+function attnForward(x, p) {
+  const { wq, wk, wv, wo, embedDim, numHeads, dPerHead, inputSize } = p;
+  const seqLen = x.length; // each feature is a "token"
+
+  // Linear projections: (seqLen, embedDim)
+  const matMul = (vec, mat) => {
+    const out = [];
+    for (let r = 0; r < mat.length; r++) {
+      let s = 0;
+      for (let c = 0; c < vec.length; c++) s += mat[r][c] * vec[c];
+      out.push(s);
+    }
+    return out;
+  };
+  const Q = x.map(v => matMul([v], wq)); // seqLen × embedDim
+  const K = x.map(v => matMul([v], wk));
+  const V = x.map(v => matMul([v], wv));
+
+  // Multi-head attention
+  const scale = Math.sqrt(dPerHead);
+  const headOutputs = [];
+  for (let h = 0; h < numHeads; h++) {
+    const startD = h * dPerHead;
+    // Extract head dims
+    const qh = Q.map(q => q.slice(startD, startD + dPerHead));
+    const kh = K.map(k => k.slice(startD, startD + dPerHead));
+    const vh = V.map(v => v.slice(startD, startD + dPerHead));
+
+    // Scores: seqLen × seqLen
+    const scores = [];
+    for (let i = 0; i < seqLen; i++) {
+      scores[i] = [];
+      for (let j = 0; j < seqLen; j++) {
+        let s = 0;
+        for (let d = 0; d < dPerHead; d++) s += qh[i][d] * kh[j][d];
+        scores[i][j] = s / scale;
+      }
+    }
+    // Softmax along rows
+    const attnW = scores.map(row => {
+      const maxS = Math.max(...row);
+      const expR = row.map(v => Math.exp(v - maxS));
+      const sum = expR.reduce((a, b) => a + b, 1e-15);
+      return expR.map(v => v / sum);
+    });
+    // Weighted sum of V
+    const outH = [];
+    for (let i = 0; i < seqLen; i++) {
+      const out = Array(dPerHead).fill(0);
+      for (let j = 0; j < seqLen; j++) {
+        const aw = attnW[i][j];
+        for (let d = 0; d < dPerHead; d++) out[d] += aw * vh[j][d];
+      }
+      outH.push(out);
+    }
+    headOutputs.push({ out: outH, attnW });
+  }
+
+  // Concatenate heads and project: (seqLen, embedDim)
+  const concat = [];
+  for (let i = 0; i < seqLen; i++) {
+    const row = [];
+    for (let h = 0; h < numHeads; h++) row.push(...headOutputs[h].out[i]);
+    concat.push(row);
+  }
+  // Output projection + ReLU
+  const attended = concat.map(row => {
+    const out = matMul(row, wo);
+    return out.map(v => Math.max(0, v));
+  });
+
+  // Mean pool across sequence
+  const pooled = Array(embedDim).fill(0);
+  for (let i = 0; i < seqLen; i++) {
+    for (let d = 0; d < embedDim; d++) pooled[d] += attended[i][d];
+  }
+  for (let d = 0; d < embedDim; d++) pooled[d] /= seqLen;
+
+  p.cache = { x, Q, K, V, headOutputs, attended, seqLen };
+  return pooled;
+}
+
+function attnBackward(deltas, p) {
+  const { wq, wk, wv, wo, embedDim, numHeads, dPerHead, inputSize, cache } = p;
+  if (!cache) {
+    return { gradWq: null, gradWk: null, gradWv: null, gradWo: null };
+  }
+  const { x, Q, K, V, headOutputs, attended, seqLen } = cache;
+
+  // Gradient w.r.t. pooled → attended (mean pool backward)
+  const dAttended = attended.map(row => deltas.map(d => d / seqLen));
+
+  // Gradient w.r.t. attended (output projection + ReLU backward)
+  const dOutput = attended.map((row, i) => {
+    const dAttn = dAttended[i];
+    return row.map((v, j) => (v > 0 ? dAttn[j] : 0));
+  });
+
+  // Gradient through wo
+  const gradWo = Array.from({length: embedDim}, () => Array(embedDim).fill(0));
+  const concatVals = [];
+  for (let i = 0; i < seqLen; i++) {
+    const row = [];
+    for (let h = 0; h < numHeads; h++) row.push(...headOutputs[h].out[i]);
+    concatVals.push(row);
+    for (let r = 0; r < embedDim; r++) {
+      for (let c = 0; c < embedDim; c++) {
+        gradWo[r][c] += dOutput[i][r] * row[c];
+      }
+    }
+  }
+  const dConcat = concatVals.map(() => Array(embedDim).fill(0));
+  // dConcat = dOutput · wo^T
+  for (let i = 0; i < seqLen; i++) {
+    for (let c = 0; c < embedDim; c++) {
+      let s = 0;
+      for (let r = 0; r < embedDim; r++) s += dOutput[i][r] * wo[r][c];
+      dConcat[i][c] = s;
+    }
+  }
+
+  // Gradient through attention heads
+  const gradWq = Array.from({length: embedDim}, () => Array(inputSize).fill(0));
+  const gradWk = Array.from({length: embedDim}, () => Array(inputSize).fill(0));
+  const gradWv = Array.from({length: embedDim}, () => Array(inputSize).fill(0));
+
+  for (let h = 0; h < numHeads; h++) {
+    const startD = h * dPerHead;
+    const dq = Q.map(() => Array(dPerHead).fill(0));
+    const dk = K.map(() => Array(dPerHead).fill(0));
+    const dv = V.map(() => Array(dPerHead).fill(0));
+
+    const { out: outH, attnW } = headOutputs[h];
+
+    // Gradient through attention output
+    for (let i = 0; i < seqLen; i++) {
+      for (let d = 0; d < dPerHead; d++) {
+        const dSrc = dConcat[i][startD + d];
+        // This contributes to both vh and attnW
+        for (let j = 0; j < seqLen; j++) {
+          dv[j][d] += dSrc * attnW[i][j];
+        }
+      }
+    }
+
+    // Gradient through softmax
+    for (let i = 0; i < seqLen; i++) {
+      const vh = V.map(v => v.slice(startD, startD + dPerHead));
+      // softmax gradient: a_ij * (grad_j - sum_k(a_ik * grad_k))
+      const dScores = Array(seqLen).fill(0);
+      let sumGradAttn = 0;
+      for (let j = 0; j < seqLen; j++) {
+        let prod = 0;
+        for (let d = 0; d < dPerHead; d++) prod += dConcat[i][startD + d] * vh[j][d];
+        sumGradAttn += attnW[i][j] * prod;
+      }
+      for (let j = 0; j < seqLen; j++) {
+        let prod = 0;
+        for (let d = 0; d < dPerHead; d++) prod += dConcat[i][startD + d] * vh[j][d];
+        dScores[j] = attnW[i][j] * (prod - sumGradAttn);
+      }
+
+      // dQ and dK from scores
+      const scale = Math.sqrt(dPerHead);
+      const qh = Q.map(q => q.slice(startD, startD + dPerHead));
+      const kh = K.map(k => k.slice(startD, startD + dPerHead));
+      for (let j = 0; j < seqLen; j++) {
+        const dS = dScores[j] / scale;
+        for (let d = 0; d < dPerHead; d++) {
+          dq[i][d] += dS * kh[j][d];
+          dk[j][d] += dS * qh[i][d];
+        }
+      }
+    }
+
+    // Accumulate gradients: dQ/dK/dV back through linear projections
+    for (let i = 0; i < seqLen; i++) {
+      for (let d = 0; d < dPerHead; d++) {
+        const gIdx = startD + d;
+        for (let c = 0; c < inputSize; c++) {
+          gradWq[gIdx][c] += dq[i][d] * x[i];
+          gradWk[gIdx][c] += dk[i][d] * x[i];
+          gradWv[gIdx][c] += dv[i][d] * x[i];
+        }
+      }
+    }
+  }
+
+  // Gradient to input x
+  const gradX = Array(inputSize).fill(0);
+  for (let c = 0; c < inputSize; c++) {
+    for (let i = 0; i < seqLen; i++) {
+      for (let d = 0; d < embedDim; d++) {
+        gradX[c] += (gradWq[d] ? 0 : 0); // simplified: x gradient from Q/K/V
+      }
+    }
+  }
+  // x gradient: use accumulated Q-grad × wq^T as approximation
+  for (let i = 0; i < seqLen; i++) {
+    for (let c = 0; c < inputSize; c++) {
+      for (let d = 0; d < embedDim; d++) {
+        // Use accumulated dQ gradient (from head-specific dq scaled by wq)
+        gradX[c] += (dConcat[i][d] || 0) * wq[d][c] * 1e-3;
+      }
+    }
+  }
+
+  p.cache = null;
+  return { gradWq, gradWk, gradWv, gradWo, gradX };
+}
+
+// ============================================================
+//  架构统一接口
+// ============================================================
+function archInit(inputSize) {
+  const arch = getArchitectureType();
+  archOptimStates = {};
+  if (arch === "cnn") {
+    archParams = cnnInit(inputSize);
+  } else if (arch === "rnn") {
+    archParams = rnnInit(inputSize);
+  } else if (arch === "attention") {
+    archParams = attnInit(inputSize);
+  } else {
+    archParams = null;
+  }
+}
+
+function archForward(inputs) {
+  if (!archParams) return inputs.slice(); // MLP: passthrough
+  if (archParams.type === "cnn") return cnnForward(inputs, archParams);
+  if (archParams.type === "rnn") return rnnForward(inputs, archParams);
+  if (archParams.type === "attention") return attnForward(inputs, archParams);
+  return inputs.slice();
+}
+
+function archBackward(deltas) {
+  if (!archParams) return null;
+  if (archParams.type === "cnn") {
+    return cnnBackward(deltas, archParams);
+  } else if (archParams.type === "rnn") {
+    return rnnBackward(deltas, archParams);
+  } else if (archParams.type === "attention") {
+    return attnBackward(deltas, archParams);
+  }
+  return null;
+}
+
+function archInitAccum() {
+  if (!archParams) return;
+  const t = archParams.type;
+  if (t === "cnn") {
+    archAccGrad = {
+      type: "cnn",
+      gradW: Array.from({length: archParams.filters}, () => Array(archParams.kernel).fill(0)),
+      gradB: Array(archParams.filters).fill(0)
+    };
+  } else if (t === "rnn") {
+    archAccGrad = {
+      type: "rnn",
+      gradWx: Array(archParams.hiddenDim).fill(0),
+      gradWh: Array.from({length: archParams.hiddenDim}, () => Array(archParams.hiddenDim).fill(0)),
+      gradB: Array(archParams.hiddenDim).fill(0)
+    };
+  } else if (t === "attention") {
+    const d = archParams.embedDim, isz = archParams.inputSize;
+    archAccGrad = {
+      type: "attention",
+      gradWq: Array.from({length: d}, () => Array(isz).fill(0)),
+      gradWk: Array.from({length: d}, () => Array(isz).fill(0)),
+      gradWv: Array.from({length: d}, () => Array(isz).fill(0)),
+      gradWo: Array.from({length: d}, () => Array(d).fill(0))
+    };
+  } else {
+    archAccGrad = null;
+  }
+}
+
+function archAccumulate(g) {
+  if (!g || !archAccGrad) return;
+  if (g.type && g.type !== archAccGrad.type) return;
+  const t = archAccGrad.type;
+  if (t === "cnn") {
+    if (g.gradW) {
+      for (let f = 0; f < g.gradW.length; f++) {
+        for (let k = 0; k < g.gradW[f].length; k++) {
+          archAccGrad.gradW[f][k] += g.gradW[f][k] || 0;
+        }
+      }
+    }
+    if (g.gradB) for (let f = 0; f < g.gradB.length; f++) archAccGrad.gradB[f] += g.gradB[f] || 0;
+  } else if (t === "rnn") {
+    if (g.gradWx) for (let d = 0; d < g.gradWx.length; d++) archAccGrad.gradWx[d] += g.gradWx[d] || 0;
+    if (g.gradWh) {
+      for (let d = 0; d < g.gradWh.length; d++) {
+        for (let dd = 0; dd < g.gradWh[d].length; dd++) {
+          archAccGrad.gradWh[d][dd] += g.gradWh[d][dd] || 0;
+        }
+      }
+    }
+    if (g.gradB) for (let d = 0; d < g.gradB.length; d++) archAccGrad.gradB[d] += g.gradB[d] || 0;
+  } else if (t === "attention") {
+    if (g.gradWq) {
+      for (let d = 0; d < g.gradWq.length; d++)
+        for (let c = 0; c < g.gradWq[d].length; c++)
+          archAccGrad.gradWq[d][c] += g.gradWq[d][c] || 0;
+    }
+    if (g.gradWk) {
+      for (let d = 0; d < g.gradWk.length; d++)
+        for (let c = 0; c < g.gradWk[d].length; c++)
+          archAccGrad.gradWk[d][c] += g.gradWk[d][c] || 0;
+    }
+    if (g.gradWv) {
+      for (let d = 0; d < g.gradWv.length; d++)
+        for (let c = 0; c < g.gradWv[d].length; c++)
+          archAccGrad.gradWv[d][c] += g.gradWv[d][c] || 0;
+    }
+    if (g.gradWo) {
+      for (let d = 0; d < g.gradWo.length; d++)
+        for (let c = 0; c < g.gradWo[d].length; c++)
+          archAccGrad.gradWo[d][c] += g.gradWo[d][c] || 0;
+    }
+  }
+}
+
+function archUpdateWeights(batchSize, step, lr, optimizer) {
+  if (!archParams || !archAccGrad) return;
+  const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
+  const momentum = 0.9, rho = 0.999;
+  const ops = archOptimStates;
+  if (!ops.step) ops.step = 0;
+  ops.step++;
+
+  const applyGrad = (key, paramArr, gradArr) => {
+    const g = gradArr / batchSize;
+    const sk = `w_${key}`;
+    if (optimizer === "adam") {
+      const mHat = 1 - Math.pow(beta1, ops.step);
+      const vHat = 1 - Math.pow(beta2, ops.step);
+      if (!ops[sk + "_m"]) { ops[sk + "_m"] = 0; ops[sk + "_v"] = 0; }
+      ops[sk + "_m"] = beta1 * ops[sk + "_m"] + (1 - beta1) * g;
+      ops[sk + "_v"] = beta2 * ops[sk + "_v"] + (1 - beta2) * g * g;
+      return -lr * (ops[sk + "_m"] / mHat) / (Math.sqrt(ops[sk + "_v"] / vHat) + eps);
+    } else if (optimizer === "momentum") {
+      if (!ops[sk + "_v"]) ops[sk + "_v"] = 0;
+      ops[sk + "_v"] = momentum * ops[sk + "_v"] - lr * g;
+      return ops[sk + "_v"];
+    } else if (optimizer === "rmsprop") {
+      if (!ops[sk + "_v"]) ops[sk + "_v"] = 0;
+      ops[sk + "_v"] = rho * ops[sk + "_v"] + (1 - rho) * g * g;
+      return -lr * g / (Math.sqrt(ops[sk + "_v"]) + eps);
+    } else { // sgd
+      return -lr * g;
+    }
+  };
+
+  const { type } = archParams;
+
+  if (type === "cnn") {
+    const { gradW, gradB } = archAccGrad;
+    for (let f = 0; f < archParams.filters; f++) {
+      archParams.b[f] += applyGrad(`b_${f}`, null, gradB[f]);
+      for (let k = 0; k < archParams.kernel; k++) {
+        archParams.w[f][k] += applyGrad(`w_${f}_${k}`, null, gradW[f][k]);
+      }
+    }
+  } else if (type === "rnn") {
+    const { gradWx, gradWh, gradB } = archAccGrad;
+    for (let d = 0; d < archParams.hiddenDim; d++) {
+      archParams.b[d] += applyGrad(`b_${d}`, null, gradB[d]);
+      archParams.wx[d] += applyGrad(`wx_${d}`, null, gradWx[d]);
+      for (let dd = 0; dd < archParams.hiddenDim; dd++) {
+        archParams.wh[d][dd] += applyGrad(`wh_${d}_${dd}`, null, gradWh[d][dd]);
+      }
+    }
+  } else if (type === "attention") {
+    const { gradWq, gradWk, gradWv, gradWo } = archAccGrad;
+    const { embedDim, inputSize } = archParams;
+    for (let d = 0; d < embedDim; d++) {
+      for (let c = 0; c < inputSize; c++) {
+        archParams.wq[d][c] += applyGrad(`wq_${d}_${c}`, null, gradWq[d][c]);
+        archParams.wk[d][c] += applyGrad(`wk_${d}_${c}`, null, gradWk[d][c]);
+        archParams.wv[d][c] += applyGrad(`wv_${d}_${c}`, null, gradWv[d][c]);
+      }
+      for (let cd = 0; cd < embedDim; cd++) {
+        archParams.wo[d][cd] += applyGrad(`wo_${d}_${cd}`, null, gradWo[d][cd]);
+      }
+    }
+  }
+
+  archAccGrad = null;
+}
+
+// ===== 架构配置 UI 控制 =====
+(function setupArchUI() {
+  const archSel = document.getElementById("architecture");
+  if (!archSel) return;
+  archSel.addEventListener("change", () => {
+    const val = archSel.value;
+    document.querySelectorAll(".arch-config").forEach(el => el.style.display = "none");
+    if (val === "cnn") {
+      document.getElementById("cnnConfig").style.display = "block";
+      document.getElementById("cnnConfig2").style.display = "block";
+    } else if (val === "rnn") {
+      document.getElementById("rnnConfig").style.display = "block";
+    } else if (val === "attention") {
+      document.getElementById("attnConfig").style.display = "block";
+      document.getElementById("attnConfig2").style.display = "block";
+    }
+  });
+})();
 
 // ============================================================
 //  网络结构：network[l][n] = { weights, bias, z, a }
@@ -1313,7 +1949,8 @@ function forward(net, inputs, activation, isTraining, networkType, dropoutMask) 
     for (let n = 0; n < layer.length; n++) {
       const node = layer[n];
       if (l === 0) {
-        node.z = current[0];
+        node.z = current[n] || 0;
+        node.a = node.z;
       } else {
         let sum = node.bias;
         for (let i = 0; i < node.weights.length; i++) {
@@ -1408,6 +2045,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       const gradW = {};
       const gradB = {};
       let batchLoss = 0;
+      if (archParams) archInitAccum();  // 初始化架构梯度累积
 
       for (const si of batchIndices) {
         const sample = trainData[si];
@@ -1418,7 +2056,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           dropoutMask = generateDropoutMask(network.map(l => l.length), dropoutRate);
         }
 
-        forward(network, x, activation, true, networkType, dropoutMask);
+        forward(network, archForward(x), activation, true, networkType, dropoutMask);
 
         let loss = 0;
         const outputLayer = network[numLayers - 1];
@@ -1472,11 +2110,16 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
             }
 
             for (let i = 0; i < prevLayer.length; i++) {
-              const dAct = l < numLayers - 1 ? ACT[activation].deriv(prevLayer[i].z) : 1.0;
+              const dAct = (l > 1 && l < numLayers - 1) ? ACT[activation].deriv(prevLayer[i].a) : 1.0;
               nextDeltas[i] += d * node.weights[i] * dAct;
             }
           }
           deltas = nextDeltas;
+        }
+        // 架构反向传播（累积梯度）
+        if (archParams) {
+          const ag = archBackward(deltas);
+          if (ag) archAccumulate(ag);
         }
       }
 
@@ -1546,6 +2189,9 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           network[l][n].weights[i] -= lr * g;
         }
       }
+
+      // 更新架构权重
+      if (archParams) archUpdateWeights(bSize, step, lr, opt);
 
       epochLoss += batchLoss;
     }
@@ -1881,16 +2527,25 @@ function rebuildInferInputs() {
 }
 rebuildInferInputs();
 
-// ===== 收集层大小 =====
+// ===== 收集层大小（考虑架构特征维度） =====
 function getLayerSizes() {
   const input  = parseInt(document.getElementById("inputSize").value) || 1;
   const output = parseInt(document.getElementById("outputSize").value) || 1;
-  const layers = [input];
+  const arch = getArchitectureType();
+  const firstDim = (arch === "mlp") ? input : getArchFeatureDim(input);
+  const layers = [firstDim];
   layerConfig.querySelectorAll("[data-layer] input").forEach(inp => {
     layers.push(parseInt(inp.value) || 4);
   });
   layers.push(output);
   return layers;
+}
+
+// ===== 收集层大小（不含架构变换） =====
+function getRawLayerSizes() {
+  const input  = parseInt(document.getElementById("inputSize").value) || 1;
+  const output = parseInt(document.getElementById("outputSize").value) || 1;
+  return [input, output];
 }
 
 // ===== 收集全部训练数据（原始值） =====
@@ -2508,12 +3163,14 @@ function drawNetStructure() {
   nsCtx.fillStyle = light ? "#777" : "#888";
   nsCtx.font = "11px 'Segoe UI','PingFang SC',sans-serif";
   nsCtx.textAlign = "center";
+  const arch = nsData.architecture || "mlp";
+  const archNames = { cnn: "CNN 特征图", rnn: "RNN 隐状态", attention: "Attn 嵌入" };
   for (let l = 0; l < L; l++) {
     const x = layerX(l);
     const count = layerSizes[l];
     const labelY = neuronY(0, count) - neuronR * 2.8;
     let label;
-    if (l === 0) label = "输入层";
+    if (l === 0) label = (arch !== "mlp") ? (archNames[arch] || "特征层") : "输入层";
     else if (l === L - 1) label = "输出层";
     else label = "隐藏层 " + l;
     nsCtx.fillText(label, x, labelY);
@@ -2647,7 +3304,15 @@ netStructCanvas.addEventListener("touchend", () => {
 
 // 外部调用：训练完成后显示网络结构
 function showNetStructure(layerSizes, weights) {
-  nsData = { layerSizes: [...layerSizes], weights: JSON.parse(JSON.stringify(weights)) };
+  const arch = getArchitectureType();
+  const names = { mlp: "MLP 全连接", cnn: "CNN 一维卷积", rnn: "RNN 循环网络", attention: "Attention 自注意力" };
+  document.getElementById("netStructTitle").textContent = `🔗 网络结构 (${names[arch] || arch})`;
+
+  nsData = {
+    layerSizes: [...layerSizes],
+    weights: JSON.parse(JSON.stringify(weights)),
+    architecture: arch,
+  };
   nsView = { ox: 0, oy: 0, scale: 1 };
   document.getElementById("netStructPanel").style.display = "block";
   resizeNetStructCanvas();
@@ -2895,6 +3560,140 @@ document.getElementById("exDigits").addEventListener("click", () => {
   document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
+// 示例7：CNN 1D 信号峰值检测（分类）
+document.getElementById("exCnn").addEventListener("click", () => {
+  loadExampleCommon();
+  document.getElementById("architecture").value = "cnn";
+  document.getElementById("inputSize").value = 16;
+  document.getElementById("outputSize").value = 2;
+  document.getElementById("networkType").value = "classification";
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) { existingLayers[i].remove(); }
+  layerConfig.querySelector("[data-layer] input").value = 8;
+  document.getElementById("lr").value = 0.008;
+  document.getElementById("epochs").value = 2000;
+  document.getElementById("batchSize").value = 16;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("optimizer").value = "adam";
+  document.getElementById("cnnKernel").value = 3;
+  document.getElementById("cnnFilters").value = 8;
+  useDropoutCb.checked = true; dropoutField.style.display = "block";
+  document.getElementById("dropoutRate").value = 0.2;
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  useTestSetCb.checked = true;
+  document.getElementById("testRatio").value = 0.2;
+  syncInputSize();
+  // Arch UI
+  document.querySelectorAll(".arch-config").forEach(el => el.style.display = "none");
+  document.getElementById("cnnConfig").style.display = "block";
+  document.getElementById("cnnConfig2").style.display = "block";
+  const data = [];
+  const nEach = 60;
+  for (let i = 0; i < nEach; i++) {
+    // Class 0: flat/linear signal (no peak)
+    const sig0 = Array.from({length: 16}, (_, j) => 0.1 + 0.15 * j / 16 + (Math.random() - 0.5) * 0.3);
+    data.push([...sig0, 1, 0]);
+    // Class 1: signal with a peak
+    const peakPos = 3 + Math.floor(Math.random() * 10);
+    const sig1 = Array.from({length: 16}, (_, j) => {
+      const d = (j - peakPos) / 3;
+      return (Math.random() - 0.5) * 0.3 + 2 * Math.exp(-d * d);
+    });
+    data.push([...sig1, 0, 1]);
+  }
+  for (const row of data) addDataRow(row);
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载 CNN 信号峰值检测示例 — 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
+});
+
+// 示例8：RNN 序列预测（回归）
+document.getElementById("exRnn").addEventListener("click", () => {
+  loadExampleCommon();
+  document.getElementById("architecture").value = "rnn";
+  document.getElementById("inputSize").value = 10;
+  document.getElementById("outputSize").value = 1;
+  document.getElementById("networkType").value = "regression";
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) { existingLayers[i].remove(); }
+  layerConfig.querySelector("[data-layer] input").value = 8;
+  document.getElementById("lr").value = 0.01;
+  document.getElementById("epochs").value = 2000;
+  document.getElementById("batchSize").value = 8;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("optimizer").value = "adam";
+  document.getElementById("rnnHidden").value = 8;
+  useDropoutCb.checked = false; dropoutField.style.display = "none";
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  useTestSetCb.checked = true;
+  document.getElementById("testRatio").value = 0.2;
+  syncInputSize();
+  document.querySelectorAll(".arch-config").forEach(el => el.style.display = "none");
+  document.getElementById("rnnConfig").style.display = "block";
+  const data = [];
+  for (let i = 0; i < 100; i++) {
+    const freq = 0.5 + Math.random() * 2;
+    const phase = Math.random() * 2 * Math.PI;
+    const seq = Array.from({length: 11}, (_, t) => Math.sin(freq * t * 0.4 + phase) + (Math.random() - 0.5) * 0.08);
+    data.push([...seq.slice(0, 10), seq[10]]);
+  }
+  for (const row of data) addDataRow(row);
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载 RNN 序列预测示例 — 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
+});
+
+// 示例9：Attention 波形分类（分类）
+document.getElementById("exAttention").addEventListener("click", () => {
+  loadExampleCommon();
+  document.getElementById("architecture").value = "attention";
+  document.getElementById("inputSize").value = 20;
+  document.getElementById("outputSize").value = 3;
+  document.getElementById("networkType").value = "classification";
+  const existingLayers = layerConfig.querySelectorAll("[data-layer]");
+  for (let i = existingLayers.length - 1; i >= 1; i--) { existingLayers[i].remove(); }
+  layerConfig.querySelector("[data-layer] input").value = 12;
+  document.getElementById("lr").value = 0.005;
+  document.getElementById("epochs").value = 3000;
+  document.getElementById("batchSize").value = 16;
+  document.getElementById("activation").value = "leaky_relu";
+  document.getElementById("optimizer").value = "adam";
+  document.getElementById("attnEmbed").value = 16;
+  document.getElementById("attnHeads").value = 2;
+  useDropoutCb.checked = true; dropoutField.style.display = "block";
+  document.getElementById("dropoutRate").value = 0.15;
+  useL2Cb.checked = false; l2Field.style.display = "none";
+  useTestSetCb.checked = true;
+  document.getElementById("testRatio").value = 0.2;
+  syncInputSize();
+  document.querySelectorAll(".arch-config").forEach(el => el.style.display = "none");
+  document.getElementById("attnConfig").style.display = "block";
+  document.getElementById("attnConfig2").style.display = "block";
+  const data = [];
+  const nEach = 80;
+  for (let i = 0; i < nEach; i++) {
+    // Class 0: sine wave
+    const sine = Array.from({length: 20}, (_, t) => Math.sin(2 * Math.PI * t / 20 + Math.random() * 0.5) + (Math.random() - 0.5) * 0.25);
+    data.push([...sine, 1, 0, 0]);
+    // Class 1: sawtooth
+    const saw = Array.from({length: 20}, (_, t) => ((t / 20 * 2 - 1) % 1 + 1) % 1 * 2 - 1 + (Math.random() - 0.5) * 0.25);
+    data.push([...saw, 0, 1, 0]);
+    // Class 2: square wave
+    const sqr = Array.from({length: 20}, (_, t) => (Math.sin(2 * Math.PI * t / 20) > 0 ? 1 : -1) + (Math.random() - 0.5) * 0.3);
+    data.push([...sqr, 0, 0, 1]);
+  }
+  for (const row of data) addDataRow(row);
+  updateInputOutputLock();
+  rebuildInferInputs();
+  statusEl.textContent = "✅ 已加载 Attention 波形分类示例 — 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
+});
+
 // ===== 训练按钮 =====
 trainBtn.addEventListener("click", async () => {
   if (isTraining) return;
@@ -2982,6 +3781,9 @@ trainBtn.addEventListener("click", async () => {
   statusEl.textContent = "训练中...";
   hideChartPlaceholder();
 
+  const inputSize = parseInt(document.getElementById("inputSize").value) || 1;
+  archInit(inputSize);  // 初始化架构（CNN/RNN/Attention）权重
+
   const net = buildNetwork(layerSizes);
   const startTime = performance.now();
 
@@ -3068,11 +3870,23 @@ function setAllTrainData(rawData, inputSize, outputSize) {
 function buildModelJSON() {
   const seedEl = document.getElementById("randomSeed");
   const seedVal = seedEl && seedEl.value !== "" && seedEl.value !== null ? parseInt(seedEl.value, 10) : undefined;
+  const arch = getArchitectureType();
+  const inputSize = parseInt(document.getElementById("inputSize").value) || 1;
+  const archCfg = arch !== "mlp" ? {
+    architecture: arch,
+    inputSize: inputSize,
+    cnnKernel: arch === "cnn" ? (parseInt(document.getElementById("cnnKernel").value) || 3) : undefined,
+    cnnFilters: arch === "cnn" ? (parseInt(document.getElementById("cnnFilters").value) || 8) : undefined,
+    rnnHidden: arch === "rnn" ? (parseInt(document.getElementById("rnnHidden").value) || 8) : undefined,
+    attnEmbed: arch === "attention" ? (parseInt(document.getElementById("attnEmbed").value) || 16) : undefined,
+    attnHeads: arch === "attention" ? (parseInt(document.getElementById("attnHeads").value) || 2) : undefined,
+  } : undefined;
   return {
-    version: 5,
+    version: 6,
     savedAt: new Date().toISOString(),
     config: {
       layerSizes: getLayerSizes(),
+      rawLayerSizes: getRawLayerSizes(),
       lr: parseFloat(document.getElementById("lr").value),
       epochs: parseInt(document.getElementById("epochs").value),
       batchSize: parseInt(document.getElementById("batchSize").value) || 16,
@@ -3088,8 +3902,10 @@ function buildModelJSON() {
       testRatio: useTestSetCb.checked ? parseFloat(document.getElementById("testRatio").value) : undefined,
       useGPU: useGPU,
       randomSeed: seedVal,
+      archConfig: archCfg,
     },
     weights: currentWeights,
+    archWeights: arch !== "mlp" ? archParams : undefined,
     trainData: getAllTrainData(),
     lossHistory: lossHistory,
     testLossHistory: testLossHistory,
@@ -3133,6 +3949,28 @@ function restoreFromModelJSON(parsed) {
     seedEl.value = cfg.randomSeed !== undefined ? cfg.randomSeed : "";
   }
 
+  // 恢复架构配置
+  const archCfg = cfg.archConfig;
+  if (archCfg && archCfg.architecture && archCfg.architecture !== "mlp") {
+    document.getElementById("architecture").value = archCfg.architecture;
+    document.getElementById("architecture").dispatchEvent(new Event("change"));
+    if (archCfg.cnnKernel !== undefined) document.getElementById("cnnKernel").value = archCfg.cnnKernel;
+    if (archCfg.cnnFilters !== undefined) document.getElementById("cnnFilters").value = archCfg.cnnFilters;
+    if (archCfg.rnnHidden !== undefined) document.getElementById("rnnHidden").value = archCfg.rnnHidden;
+    if (archCfg.attnEmbed !== undefined) document.getElementById("attnEmbed").value = archCfg.attnEmbed;
+    if (archCfg.attnHeads !== undefined) document.getElementById("attnHeads").value = archCfg.attnHeads;
+    // 恢复架构权重
+    if (parsed.archWeights) {
+      archParams = parsed.archWeights;
+    } else {
+      archInit(archCfg.inputSize || 1);
+    }
+  } else {
+    document.getElementById("architecture").value = "mlp";
+    document.getElementById("architecture").dispatchEvent(new Event("change"));
+    archParams = null;
+  }
+
   const layerSizes = cfg.layerSizes;
   const net = buildNetwork(layerSizes);
 
@@ -3156,8 +3994,13 @@ function restoreFromModelJSON(parsed) {
     inp.value = layerSizes[i + 1];
   });
 
+  // 使用原始输入/输出维度恢复数据（非MLP架构的layerSizes[0]是特征维度）
+  const rawLayerSizes = cfg.rawLayerSizes || [layerSizes[0], layerSizes[layerSizes.length - 1]];
+  const restoreInputSize = rawLayerSizes[0];
+  const restoreOutputSize = rawLayerSizes[rawLayerSizes.length - 1] || layerSizes[layerSizes.length - 1];
+
   if (parsed.trainData && parsed.trainData.length > 0) {
-    setAllTrainData(parsed.trainData, layerSizes[0], layerSizes[layerSizes.length - 1]);
+    setAllTrainData(parsed.trainData, restoreInputSize, restoreOutputSize);
   }
 
   if (parsed.lossHistory && parsed.lossHistory.length > 0) {
@@ -3170,10 +4013,8 @@ function restoreFromModelJSON(parsed) {
 
   // 恢复混淆矩阵（如果有测试数据）
   if (cfg.networkType === "classification" && parsed.trainData) {
-    const n = layerSizes[0];
-    const out = layerSizes[layerSizes.length - 1];
-    // 尝试从当前数据恢复测试集
-    const allRaw = getAllRawData();
+    const n = restoreInputSize;
+    const out = restoreOutputSize;
     if (allRaw.length > 0 && useTestSetCb.checked) {
       const split = splitTrainTest(allRaw, parseFloat(document.getElementById("testRatio").value) || 0.2);
       if (split.testSet.length > 0) {
@@ -3252,7 +4093,7 @@ document.getElementById("inferBtn").addEventListener("click", () => {
   const networkType = document.getElementById("networkType").value;
   const net = buildNetwork(layerSizes);
   applyWeights(net, currentWeights);
-  const output = forward(net, inputs, activation, false, networkType, null);
+  const output = forward(net, archForward(inputs), activation, false, networkType, null);
 
   if (networkType === "classification") {
     let html = `<table class="class-result-table"><thead><tr><th>类别</th><th>概率</th></tr></thead><tbody>`;
