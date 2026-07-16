@@ -21,8 +21,9 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: grid;
   grid-template-columns: 360px 1fr;
   gap: 20px;
-  max-width: 1300px;
+  max-width: 1400px;
   margin: 0 auto;
+  align-items: start;
 }
 
 /* ===== 通用面板 ===== */
@@ -287,6 +288,20 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 /* ===== 状态 ===== */
 .status { font-size: 12px; color:#888; margin-top:10px; }
 
+/* ===== 右侧列容器（训练数据 + 示例） ===== */
+.right-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.right-col .data-edit-panel {
+  flex-shrink: 0;
+}
+.right-col #examplePanel {
+  margin-top: 20px;
+  margin-bottom: 90px;
+}
+
 /* ===== 右侧：训练数据编辑面板 ===== */
 .data-edit-panel {
   background: rgba(255,255,255,0.04);
@@ -296,20 +311,38 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 300px;
-  max-height: 100vh;
+  max-height: 134vh;
 }
 .data-edit-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
 .data-edit-scroll {
   flex: 1;
   overflow: auto;
   min-height: 200px;
-  max-height: 70vh;
+  max-height: calc(134vh - 280px);
 }
 .data-edit-panel .add-btn {
   margin-top: 0;
   width: auto;
   padding: 8px 16px;
   font-size: 12px;
+}
+.data-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.data-edit-actions .add-btn,
+.data-edit-actions .clear-btn {
+  flex: 1;
+}
+.clear-btn {
+  background: rgba(255,80,80,0.08);
+  border: 1px solid rgba(255,80,80,0.3);
+  color: #ff5555;
+}
+.clear-btn:hover {
+  background: rgba(255,80,80,0.2);
+  transform: translateY(-1px);
 }
 
 /* ===== Chart ===== */
@@ -322,6 +355,39 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 }
 .chart-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
 #lossChart { width:100%; height:260px; }
+
+/* ===== 图表占位提示 ===== */
+.chart-container {
+  position: relative;
+}
+.chart-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+  background: rgba(14,14,17,0.75);
+  border-radius: 8px;
+}
+.chart-placeholder.hidden { display: none; }
+.chart-placeholder-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.55;
+}
+.chart-placeholder-icon {
+  font-size: 42px;
+  line-height: 1;
+}
+.chart-placeholder-text {
+  font-size: 15px;
+  color: #888;
+  letter-spacing: 0.5px;
+}
 
 /* ===== 推理 ===== */
 .infer-panel {
@@ -376,6 +442,122 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 }
 .class-result-table th { color: #888; font-weight: 500; }
 .class-result-table td.highlight { color: #58a6ff; font-weight: 600; }
+
+/* ===== 混淆矩阵 ===== */
+.confusion-panel {
+  grid-column: 1 / -1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+}
+.confusion-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
+.confusion-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+  table-layout: auto;
+}
+.confusion-table th, .confusion-table td {
+  padding: 8px 10px;
+  text-align: center;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.confusion-table th { color: #888; font-weight: 500; }
+.confusion-table td.correct {
+  background: rgba(52,199,89,0.18);
+  color: #34c759;
+  font-weight: 600;
+}
+.confusion-table td.incorrect {
+  background: rgba(255,80,80,0.15);
+  color: #ff5555;
+}
+.confusion-table td.blank {
+  background: transparent;
+}
+.confusion-stats {
+  display: flex;
+  gap: 24px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.confusion-stats .stat-item {
+  font-size: 13px;
+  color: #aaa;
+}
+.confusion-stats .stat-value {
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+/* ===== 决策边界可视化 ===== */
+.decision-boundary-panel {
+  grid-column: 1 / -1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+}
+.decision-boundary-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
+#decisionCanvas {
+  width: 100%;
+  height: auto;
+  min-height: 400px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.3);
+  cursor: crosshair;
+}
+.decision-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.decision-controls .btn {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+.decision-resolution-label {
+  font-size: 12px;
+  color: #999;
+}
+.decision-resolution-label select {
+  margin-left: 6px;
+  padding: 4px 24px 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;
+  color: #fff;
+  font-size: 12px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+.decision-resolution-label select:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.decision-resolution-label select option {
+  background: #1a1a20;
+  color: #e5e5e5;
+  border: none;
+  outline: none;
+}
+.decision-resolution-label select option:hover,
+.decision-resolution-label select option:checked,
+.decision-resolution-label select option:focus {
+  background: #58a6ff;
+  color: #fff;
+}
+.decision-msg {
+  font-size: 12px;
+  color: #666;
+  margin-top: 6px;
+}
 
 /* ===== 苹果风格开关 ===== */
 .toggle-row {
@@ -438,67 +620,6 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 .toggle-switch:hover .toggle-track {
   filter: brightness(1.1);
 }
-
-/* ===== 网络可视化画布 ===== */
-.network-viz-panel {
-  grid-column: 1 / -1;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px;
-  padding: 22px;
-}
-.network-viz-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
-#networkCanvas {
-  width: 100%;
-  height: 320px;
-  border-radius: 12px;
-  background: rgba(0,0,0,0.3);
-  cursor: crosshair;
-}
-.network-viz-controls {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.network-viz-controls .btn {
-  width: auto;
-  padding: 6px 14px;
-  font-size: 12px;
-}
-.viz-speed-label {
-  font-size: 12px;
-  color: #999;
-}
-.viz-speed-label select {
-  margin-left: 6px;
-  padding: 4px 24px 4px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;
-  color: #fff;
-  font-size: 12px;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-}
-.viz-speed-label select:focus {
-  outline: none;
-  border-color: #58a6ff;
-}
-.viz-speed-label select option {
-  background: #1a1a20;
-  color: #e5e5e5;
-  border: none;
-  outline: none;
-}
-.viz-speed-label select option:hover,
-.viz-speed-label select option:checked,
-.viz-speed-label select option:focus {
-  background: #58a6ff;
-  color: #fff;
-}
 </style>
 </head>
 <body>
@@ -553,6 +674,16 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         <select id="networkType">
           <option value="regression" selected>回归网络（MSE）</option>
           <option value="classification">分类网络（Softmax + Cross Entropy）</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>优化器</label>
+        <select id="optimizer">
+          <option value="adam" selected>Adam</option>
+          <option value="momentum">动量 (Momentum)</option>
+          <option value="rmsprop">RMSProp</option>
+          <option value="sgd">SGD</option>
         </select>
       </div>
 
@@ -659,26 +790,10 @@ h1 { font-size: 24px; margin-bottom: 4px; }
       <div class="status" id="status">就绪 — 请添加训练数据</div>
     </div>
 
-    <!-- 预设示例 -->
-    <div class="panel">
-      <div class="example-grid">
-        <div class="example-col">
-          <h3>📦 回归示例</h3>
-          <button class="btn example-btn" id="exXOR">XOR 异或问题</button>
-          <button class="btn example-btn" id="exNonlinear">非线性函数拟合</button>
-          <button class="btn example-btn" id="exCurve">曲线拟合（正弦函数）</button>
-        </div>
-        <div class="example-col">
-          <h3>📦 分类示例</h3>
-          <button class="btn example-btn" id="exIris">🌸 鸢尾花分类（3 类）</button>
-          <button class="btn example-btn" id="exSpiral">🌀 螺旋分类（2 类）</button>
-          <button class="btn example-btn" id="exDigits">🔢 数字分类（4 类）</button>
-        </div>
-      </div>
-    </div>
   </div>
 
-  <!-- 右侧：训练数据编辑 -->
+  <!-- 右侧列：训练数据 + 示例 -->
+  <div class="right-col">
   <div class="data-edit-panel">
     <h3>📊 训练数据</h3>
     <div class="data-edit-scroll">
@@ -694,38 +809,70 @@ h1 { font-size: 24px; margin-bottom: 4px; }
         </tbody>
       </table>
     </div>
-    <button class="btn add-btn" id="addDataBtn">+ 添加样本</button>
+    <div class="data-edit-actions">
+      <button class="btn add-btn" id="addDataBtn">+ 添加样本</button>
+      <button class="btn clear-btn" id="clearDataBtn">🗑️ 清除全部</button>
+    </div>
   </div>
+
+  <!-- 预设示例（移至训练数据下方） -->
+  <div class="panel" id="examplePanel">
+    <div class="example-grid">
+      <div class="example-col">
+        <h3>📦 回归示例</h3>
+        <button class="btn example-btn" id="exXOR">XOR 异或问题</button>
+        <button class="btn example-btn" id="exNonlinear">非线性函数拟合</button>
+        <button class="btn example-btn" id="exCurve">曲线拟合（正弦函数）</button>
+      </div>
+      <div class="example-col">
+        <h3>📦 分类示例</h3>
+        <button class="btn example-btn" id="exIris">🌸 鸢尾花分类（3 类）</button>
+        <button class="btn example-btn" id="exSpiral">🌀 螺旋分类（2 类）</button>
+        <button class="btn example-btn" id="exDigits">🔢 数字分类（4 类）</button>
+      </div>
+    </div>
+  </div>
+  </div><!-- /right-col -->
 
   <!-- 下方：Loss + Accuracy 图表 -->
   <div class="chart-panel">
     <h3>📈 Loss & Accuracy 曲线</h3>
-    <canvas id="lossChart"></canvas>
+    <div class="chart-container" id="chartContainer">
+      <canvas id="lossChart"></canvas>
+      <div class="chart-placeholder" id="chartPlaceholder">
+        <div class="chart-placeholder-inner">
+          <span class="chart-placeholder-icon">📊</span>
+          <span class="chart-placeholder-text">请先训练网络，曲线将在此处显示</span>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- 网络可视化 -->
-  <div class="network-viz-panel">
-    <h3>🎨 神经元激活可视化</h3>
-    <canvas id="networkCanvas"></canvas>
-    <div class="network-viz-controls">
-      <button class="btn" id="vizPlayBtn">▶ 播放动画</button>
-      <button class="btn" id="vizStepBtn">⏭ 单步</button>
-      <button class="btn" id="vizResetBtn">↺ 重置</button>
-      <span class="viz-speed-label">
-        动画速度
-        <select id="vizSpeed">
-          <option value="200">慢</option>
-          <option value="80" selected>中</option>
-          <option value="30">快</option>
+  <!-- 混淆矩阵 -->
+  <div class="confusion-panel" id="confusionPanel" style="display:none;">
+    <h3>🔍 混淆矩阵 (Confusion Matrix)</h3>
+    <div id="confusionMatrixWrap"></div>
+    <div class="confusion-stats" id="confusionStats"></div>
+  </div>
+
+  <!-- 决策边界可视化 -->
+  <div class="decision-boundary-panel" id="decisionBoundaryPanel" style="display:none;">
+    <h3>🗺️ 决策边界可视化 (Decision Boundary)</h3>
+    <canvas id="decisionCanvas"></canvas>
+    <div class="decision-controls">
+      <button class="btn" id="drawBoundaryBtn">🖌️ 绘制决策边界</button>
+      <button class="btn" id="clearBoundaryBtn">🗑️ 清除</button>
+      <span class="decision-resolution-label">
+        分辨率
+        <select id="boundaryResolution">
+          <option value="80">低 (80×80)</option>
+          <option value="150" selected>中 (150×150)</option>
+          <option value="250">高 (250×250)</option>
         </select>
       </span>
-      <span class="viz-speed-label" style="margin-left:12px;">
-        显示
-        <select id="vizDisplayMode">
-          <option value="activation" selected>激活值</option>
-          <option value="weights">权重强度</option>
-        </select>
-      </span>
+    </div>
+    <div class="decision-msg" id="decisionMsg">
+      仅适用于输入维度为 2 的分类任务。请先训练网络，然后点击「绘制决策边界」。
     </div>
   </div>
 
@@ -745,7 +892,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ============================================================
-//  神经网络训练器 — 支持 Mini-Batch / 测试集 / 网络可视化
+//  神经网络训练器 — 支持多优化器 / 混淆矩阵 / 决策边界
 // ============================================================
 
 // ===== DOM =====
@@ -766,16 +913,11 @@ const testRatioField = document.getElementById("testRatioField");
 
 let currentWeights = null;
 let lossHistory    = [];
-let accHistory     = [];   // 新增：准确率历史
-let testLossHistory= [];   // 新增：测试集 loss
+let accHistory     = [];
+let testLossHistory= [];
 let lossChart      = null;
 let isTraining     = false;
-
-// ===== 网络可视化状态 =====
-let vizNet          = null;   // 当前网络引用（训练时实时更新）
-let vizAnimating    = false;
-let vizTimer        = null;
-let vizDisplayMode  = "activation"; // "activation" | "weights"
+let lastTestData   = null;   // 保存最近一次测试集用于混淆矩阵
 
 // ===== 激活函数 & 导数 =====
 const ACT = {
@@ -885,12 +1027,11 @@ function generateDropoutMask(layerSizes, dropoutRate) {
 }
 
 // ============================================================
-//  训练（Mini-Batch + Adam + Dropout/L2 + 测试集评估）
+//  训练（支持 Adam / Momentum / RMSProp / SGD）
 // ============================================================
-function train(network, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, onProgress) {
+function train(network, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, onProgress) {
   const numLayers = network.length;
   const numTrain  = trainData.length;
-  const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
   const useEarlyStop = document.getElementById("useEarlyStop").checked;
   const patience = 80;
   let bestLoss = Infinity;
@@ -899,7 +1040,17 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
   const useL2 = l2Lambda > 0;
   const hasTest = testData && testData.length > 0;
 
-  const mW = {}, vW = {}, mB = {}, vB = {};
+  // 优化器状态
+  const opt = optimizer;
+  const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
+  const momentum = 0.9;   // Momentum & RMSProp
+  const rho = 0.999;      // RMSProp
+
+  // 一阶和二阶动量缓存
+  const mW = {}, vW = {}, mB = {}, vB = {};  // Adam
+  const vW_mom = {}, vB_mom = {};              // Momentum
+  const rmsW = {}, rmsB = {};                  // RMSProp
+
   let step = 0;
 
   const losses = [];
@@ -921,7 +1072,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       const batchIndices = indices.slice(b, batchEnd);
 
       // 累加当前 batch 的梯度
-      const gradW = {}; // layerIdx -> nodeIdx -> [grads]
+      const gradW = {};
       const gradB = {};
       let batchLoss = 0;
 
@@ -988,14 +1139,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
             }
 
             for (let i = 0; i < prevLayer.length; i++) {
-              // 上一层的激活函数导数
-              const prevZ = prevLayer[i].z;
-              let dAct = 1.0;
-              if (networkType === "classification" && l === numLayers - 1) {
-                dAct = 1.0;
-              } else if (l < numLayers - 1) {
-                dAct = ACT[activation].deriv(prevLayer[i].z);
-              }
+              const dAct = l < numLayers - 1 ? ACT[activation].deriv(prevLayer[i].z) : 1.0;
               nextDeltas[i] += d * node.weights[i] * dAct;
             }
           }
@@ -1003,27 +1147,71 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
         }
       }
 
-      // ===== Adam 更新（基于 batch 平均梯度） =====
+      // ===== 根据优化器更新参数 =====
       const bSize = batchIndices.length;
       step++;
-      const mHat = 1.0 - Math.pow(beta1, step);
-      const vHat = 1.0 - Math.pow(beta2, step);
 
-      for (const key in gradB) {
-        const [l, n] = key.split(",").map(Number);
-        const g = gradB[key] / bSize;
-        if (!mB[key]) { mB[key] = 0; vB[key] = 0; }
-        mB[key] = beta1 * mB[key] + (1 - beta1) * g;
-        vB[key] = beta2 * vB[key] + (1 - beta2) * g * g;
-        network[l][n].bias -= lr * (mB[key] / mHat) / (Math.sqrt(vB[key] / vHat) + eps);
-      }
-      for (const key in gradW) {
-        const [l, n, i] = key.split(",").map(Number);
-        const g = gradW[key] / bSize;
-        if (!mW[key]) { mW[key] = 0; vW[key] = 0; }
-        mW[key] = beta1 * mW[key] + (1 - beta1) * g;
-        vW[key] = beta2 * vW[key] + (1 - beta2) * g * g;
-        network[l][n].weights[i] -= lr * (mW[key] / mHat) / (Math.sqrt(vW[key] / vHat) + eps);
+      if (opt === "adam") {
+        const mHat = 1.0 - Math.pow(beta1, step);
+        const vHat = 1.0 - Math.pow(beta2, step);
+
+        for (const key in gradB) {
+          const [l, n] = key.split(",").map(Number);
+          const g = gradB[key] / bSize;
+          if (!mB[key]) { mB[key] = 0; vB[key] = 0; }
+          mB[key] = beta1 * mB[key] + (1 - beta1) * g;
+          vB[key] = beta2 * vB[key] + (1 - beta2) * g * g;
+          network[l][n].bias -= lr * (mB[key] / mHat) / (Math.sqrt(vB[key] / vHat) + eps);
+        }
+        for (const key in gradW) {
+          const [l, n, i] = key.split(",").map(Number);
+          const g = gradW[key] / bSize;
+          if (!mW[key]) { mW[key] = 0; vW[key] = 0; }
+          mW[key] = beta1 * mW[key] + (1 - beta1) * g;
+          vW[key] = beta2 * vW[key] + (1 - beta2) * g * g;
+          network[l][n].weights[i] -= lr * (mW[key] / mHat) / (Math.sqrt(vW[key] / vHat) + eps);
+        }
+      } else if (opt === "momentum") {
+        for (const key in gradB) {
+          const [l, n] = key.split(",").map(Number);
+          const g = gradB[key] / bSize;
+          if (!vB_mom[key]) vB_mom[key] = 0;
+          vB_mom[key] = momentum * vB_mom[key] - lr * g;
+          network[l][n].bias += vB_mom[key];
+        }
+        for (const key in gradW) {
+          const [l, n, i] = key.split(",").map(Number);
+          const g = gradW[key] / bSize;
+          if (!vW_mom[key]) vW_mom[key] = 0;
+          vW_mom[key] = momentum * vW_mom[key] - lr * g;
+          network[l][n].weights[i] += vW_mom[key];
+        }
+      } else if (opt === "rmsprop") {
+        for (const key in gradB) {
+          const [l, n] = key.split(",").map(Number);
+          const g = gradB[key] / bSize;
+          if (!rmsB[key]) rmsB[key] = 0;
+          rmsB[key] = rho * rmsB[key] + (1 - rho) * g * g;
+          network[l][n].bias -= lr * g / (Math.sqrt(rmsB[key]) + eps);
+        }
+        for (const key in gradW) {
+          const [l, n, i] = key.split(",").map(Number);
+          const g = gradW[key] / bSize;
+          if (!rmsW[key]) rmsW[key] = 0;
+          rmsW[key] = rho * rmsW[key] + (1 - rho) * g * g;
+          network[l][n].weights[i] -= lr * g / (Math.sqrt(rmsW[key]) + eps);
+        }
+      } else if (opt === "sgd") {
+        for (const key in gradB) {
+          const [l, n] = key.split(",").map(Number);
+          const g = gradB[key] / bSize;
+          network[l][n].bias -= lr * g;
+        }
+        for (const key in gradW) {
+          const [l, n, i] = key.split(",").map(Number);
+          const g = gradW[key] / bSize;
+          network[l][n].weights[i] -= lr * g;
+        }
       }
 
       epochLoss += batchLoss;
@@ -1045,7 +1233,6 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           for (let n = 0; n < outputLayer.length; n++) {
             tLoss -= y[n] * Math.log(Math.max(outputLayer[n].a, 1e-15));
           }
-          // 预测类别
           let pred = 0, maxP = outputLayer[0].a;
           for (let n = 1; n < outputLayer.length; n++) {
             if (outputLayer[n].a > maxP) { maxP = outputLayer[n].a; pred = n; }
@@ -1068,7 +1255,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       if (networkType === "classification") {
         accuracies.push(correct / testData.length);
       } else {
-        accuracies.push(null); // 回归任务无准确率
+        accuracies.push(null);
       }
     } else {
       testLosses.push(null);
@@ -1229,6 +1416,13 @@ syncInputSize();
 updateInputOutputLock();
 
 document.getElementById("addDataBtn").addEventListener("click", () => { addDataRow(); updateInputOutputLock(); });
+document.getElementById("clearDataBtn").addEventListener("click", () => {
+  if (dataBody.querySelectorAll("tr").length === 0) return;
+  if (!confirm("确定要清除全部训练数据吗？此操作不可撤销。")) return;
+  dataBody.innerHTML = "";
+  updateInputOutputLock();
+  statusEl.textContent = "🗑️ 已清除全部训练数据";
+});
 document.getElementById("inputSize").addEventListener("change", () => {
   if (!document.getElementById("inputSize").disabled) { syncInputSize(); rebuildInferInputs(); }
 });
@@ -1347,7 +1541,6 @@ function splitTrainTest(rawData, testRatio) {
   const nTest = Math.max(1, Math.floor(shuffled.length * testRatio));
   const testSet = shuffled.slice(0, nTest);
   const trainSet = shuffled.slice(nTest);
-  // 转为 [x[], y[]] 格式
   const n  = parseInt(document.getElementById("inputSize").value) || 1;
   const out = parseInt(document.getElementById("outputSize").value) || 1;
   const toXY = (arr) => [arr.slice(0, n), arr.slice(n, n + out)];
@@ -1485,305 +1678,354 @@ function drawLossChart(losses, testLosses, accuracies, networkType) {
 }
 
 // ============================================================
-//  网络可视化（Canvas 动画）
+//  混淆矩阵
 // ============================================================
 
-const networkCanvas = document.getElementById("networkCanvas");
-const ctxViz = networkCanvas.getContext("2d");
-let vizLayerSizes = [];
-let vizNodePositions = []; // [layer][node] = {x, y}
+function computeConfusionMatrix(net, testData, networkType, activation, numClasses) {
+  // 对每个测试样本做预测
+  const predictions = [];
+  const actuals = [];
 
-function resizeVizCanvas() {
-  networkCanvas.width = networkCanvas.offsetWidth;
-  networkCanvas.height = networkCanvas.offsetHeight;
-}
-window.addEventListener("resize", () => { resizeVizCanvas(); drawNetworkStatic(); });
-resizeVizCanvas();
-
-// 计算节点位置
-function calcNodePositions(layerSizes) {
-  const W = networkCanvas.width;
-  const H = networkCanvas.height;
-  const marginX = 60;
-  const marginY = 40;
-  const usableW = W - 2 * marginX;
-  const usableH = H - 2 * marginY;
-  const nLayers = layerSizes.length;
-  const xStep = usableW / (nLayers - 1);
-
-  const positions = [];
-  for (let l = 0; l < nLayers; l++) {
-    const layerNodes = [];
-    const nNodes = layerSizes[l];
-    const yStep = nNodes > 1 ? usableH / (nNodes - 1) : 0;
-    const startY = nNodes > 1 ? marginY : H / 2;
-    for (let n = 0; n < nNodes; n++) {
-      const x = marginX + l * xStep;
-      const y = nNodes === 1 ? H / 2 : startY + n * yStep;
-      layerNodes.push({ x, y });
-    }
-    positions.push(layerNodes);
-  }
-  return positions;
-}
-
-// 获取节点激活值（归一化到 0~1）
-function getActivationValues(net, layerSizes) {
-  const values = [];
-  for (let l = 0; l < net.length; l++) {
-    const layerVals = [];
-    for (let n = 0; n < net[l].length; n++) {
-      let v = net[l][n].a;
-      if (v === undefined || v === null) v = 0;
-      layerVals.push(v);
-    }
-    values.push(layerVals);
-  }
-  return values;
-}
-
-// 获取权重强度（逐连接的最大值归一化）
-function getWeightValues(net, layerSizes) {
-  const allWeights = [];
-  for (let l = 1; l < net.length; l++) {
-    for (let n = 0; n < net[l].length; n++) {
-      for (let i = 0; i < net[l][n].weights.length; i++) {
-        allWeights.push(Math.abs(net[l][n].weights[i]));
-      }
-    }
-  }
-  const maxW = Math.max(...allWeights, 0.001);
-
-  const connValues = []; // [{from: [l,n], to: [l,n], strength}]
-  for (let l = 1; l < net.length; l++) {
-    for (let n = 0; n < net[l].length; n++) {
-      for (let i = 0; i < net[l][n].weights.length; i++) {
-        connValues.push({
-          from: [l - 1, i],
-          to: [l, n],
-          strength: Math.abs(net[l][n].weights[i]) / maxW
-        });
-      }
-    }
-  }
-  return connValues;
-}
-
-// 颜色映射：值 → 颜色
-function valToColor(val, min, max, scheme) {
-  const t = (val - min) / (max - min || 1);
-  const clamped = Math.max(0, Math.min(1, t));
-  if (scheme === "activation") {
-    // 蓝 → 青 → 绿 → 黄（冷到暖）
-    if (clamped < 0.25) {
-      const s = clamped / 0.25;
-      return `rgb(${Math.floor(30 + 80*s)}, ${Math.floor(100 + 155*s)}, ${Math.floor(200 - 50*s)})`;
-    } else if (clamped < 0.5) {
-      const s = (clamped - 0.25) / 0.25;
-      return `rgb(${Math.floor(110 + 50*s)}, ${Math.floor(255 - 80*s)}, ${Math.floor(150 - 100*s)})`;
-    } else if (clamped < 0.75) {
-      const s = (clamped - 0.5) / 0.25;
-      return `rgb(${Math.floor(160 + 80*s)}, ${Math.floor(175 - 100*s)}, ${Math.floor(50 + 50*s)})`;
-    } else {
-      const s = (clamped - 0.75) / 0.25;
-      return `rgb(${Math.floor(240)}, ${Math.floor(75 + 60*s)}, ${Math.floor(100 - 50*s)})`;
-    }
-  } else {
-    // 权重强度：灰 → 蓝 → 紫
-    if (clamped < 0.5) {
-      const s = clamped / 0.5;
-      return `rgb(${Math.floor(60 + 40*s)}, ${Math.floor(60 + 100*s)}, ${Math.floor(120 + 80*s)})`;
-    } else {
-      const s = (clamped - 0.5) / 0.5;
-      return `rgb(${Math.floor(100 + 80*s)}, ${Math.floor(160 - 60*s)}, ${Math.floor(200 + 40*s)})`;
-    }
-  }
-}
-
-// 绘制网络（静态 + 动画帧）
-function drawNetworkStatic() {
-  const W = networkCanvas.width;
-  const H = networkCanvas.height;
-  ctxViz.clearRect(0, 0, W, H);
-
-  if (vizLayerSizes.length === 0) {
-    ctxViz.fillStyle = "#555";
-    ctxViz.font = "14px 'Segoe UI'";
-    ctxViz.textAlign = "center";
-    ctxViz.fillText("请先训练网络，可视化将自动出现", W / 2, H / 2);
-    return;
-  }
-
-  const positions = vizNodePositions;
-
-  // 绘制连接线（权重模式）
-  if (vizDisplayMode === "weights" && vizNet) {
-    const connValues = getWeightValues(vizNet, vizLayerSizes);
-    for (const conn of connValues) {
-      const fromPos = positions[conn.from[0]][conn.from[1]];
-      const toPos = positions[conn.to[0]][conn.to[1]];
-      ctxViz.beginPath();
-      ctxViz.moveTo(fromPos.x, fromPos.y);
-      ctxViz.lineTo(toPos.x, toPos.y);
-      ctxViz.strokeStyle = valToColor(conn.strength, 0, 1, "weights");
-      ctxViz.globalAlpha = 0.2 + 0.6 * conn.strength;
-      ctxViz.lineWidth = 1 + 2 * conn.strength;
-      ctxViz.stroke();
-      ctxViz.globalAlpha = 1.0;
-    }
-  }
-
-  // 绘制节点
-  const nodeRadius = 14;
-  for (let l = 0; l < positions.length; l++) {
-    for (let n = 0; n < positions[l].length; n++) {
-      const pos = positions[l][n];
-      let color = "#444";
-      if (vizNet && vizDisplayMode === "activation") {
-        const val = vizNet[l][n].a || 0;
-        // 对激活值做简单的归一化显示
-        let displayVal = val;
-        if (Math.abs(displayVal) > 1) displayVal = Math.tanh(displayVal); // 压缩到大体 -1~1
-        color = valToColor(displayVal, -1, 1, "activation");
-      }
-
-      // 节点底色
-      ctxViz.beginPath();
-      ctxViz.arc(pos.x, pos.y, nodeRadius, 0, Math.PI * 2);
-      ctxViz.fillStyle = color;
-      ctxViz.globalAlpha = 0.9;
-      ctxViz.fill();
-      ctxViz.globalAlpha = 1.0;
-      ctxViz.strokeStyle = "rgba(255,255,255,0.3)";
-      ctxViz.lineWidth = 1.5;
-      ctxViz.stroke();
-
-      // 节点标签
-      ctxViz.fillStyle = "#fff";
-      ctxViz.font = "9px 'Segoe UI'";
-      ctxViz.textAlign = "center";
-      ctxViz.textBaseline = "middle";
-      if (l === 0) {
-        ctxViz.fillText(`x${n+1}`, pos.x, pos.y);
-      } else if (l === positions.length - 1) {
-        ctxViz.fillText(`y${n+1}`, pos.x, pos.y);
-      } else {
-        ctxViz.fillText(`${l}`, pos.x, pos.y);
-      }
-    }
-  }
-
-  // 层标签
-  ctxViz.fillStyle = "#888";
-  ctxViz.font = "11px 'Segoe UI'";
-  ctxViz.textAlign = "center";
-  for (let l = 0; l < positions.length; l++) {
-    const x = positions[l][0].x;
-    let label = "";
-    if (l === 0) label = "输入层";
-    else if (l === positions.length - 1) label = "输出层";
-    else label = `隐藏层${l}`;
-    ctxViz.fillText(label, x, 14);
-  }
-}
-
-// 动画：逐样本前向传播可视化
-function startVizAnimation(net, trainData, activation, networkType) {
-  if (vizAnimating) stopVizAnimation();
-  vizAnimating = true;
-  vizNet = net;
-  vizLayerSizes = getLayerSizes();
-  vizNodePositions = calcNodePositions(vizLayerSizes);
-
-  const speed = parseInt(document.getElementById("vizSpeed").value) || 80;
-  let sampleIdx = 0;
-
-  vizTimer = setInterval(() => {
-    if (sampleIdx >= trainData.length) {
-      sampleIdx = 0;
-    }
-    const x = trainData[sampleIdx][0];
+  for (const sample of testData) {
+    const x = sample[0], y = sample[1];
     forward(net, x, activation, false, networkType, null);
-    drawNetworkStatic();
-    sampleIdx++;
-  }, speed);
+    const outputLayer = net[net.length - 1];
+
+    // 预测类别
+    let pred = 0, maxP = outputLayer[0].a;
+    for (let n = 1; n < outputLayer.length; n++) {
+      if (outputLayer[n].a > maxP) { maxP = outputLayer[n].a; pred = n; }
+    }
+
+    // 实际类别
+    let actual = 0;
+    for (let n = 1; n < y.length; n++) {
+      if (y[n] > y[actual]) actual = n;
+    }
+
+    predictions.push(pred);
+    actuals.push(actual);
+  }
+
+  // 构建混淆矩阵
+  const matrix = Array.from({ length: numClasses }, () => new Array(numClasses).fill(0));
+  for (let i = 0; i < actuals.length; i++) {
+    matrix[actuals[i]][predictions[i]]++;
+  }
+
+  return { matrix, predictions, actuals };
 }
 
-function stopVizAnimation() {
-  vizAnimating = false;
-  if (vizTimer) { clearInterval(vizTimer); vizTimer = null; }
+function renderConfusionMatrix(matrix, numClasses) {
+  const wrap = document.getElementById("confusionMatrixWrap");
+  const statsEl = document.getElementById("confusionStats");
+
+  // 计算统计量
+  let total = 0, correct = 0;
+  for (let i = 0; i < numClasses; i++) {
+    for (let j = 0; j < numClasses; j++) {
+      total += matrix[i][j];
+      if (i === j) correct += matrix[i][j];
+    }
+  }
+  const overallAcc = total > 0 ? (correct / total * 100) : 0;
+
+  // 每类的精确率和召回率
+  const perClass = [];
+  for (let c = 0; c < numClasses; c++) {
+    let tp = matrix[c][c];
+    let predictedCount = 0;
+    let actualCount = 0;
+    for (let i = 0; i < numClasses; i++) {
+      predictedCount += matrix[i][c];
+      actualCount += matrix[c][i];
+    }
+    const precision = predictedCount > 0 ? (tp / predictedCount * 100) : 0;
+    const recall = actualCount > 0 ? (tp / actualCount * 100) : 0;
+    const f1 = (precision + recall) > 0 ? (2 * precision * recall / (precision + recall)) : 0;
+    perClass.push({ precision, recall, f1, support: actualCount });
+  }
+
+  // 构建 HTML 表格
+  let html = `<table class="confusion-table"><thead><tr><th></th>`;
+  for (let j = 0; j < numClasses; j++) {
+    html += `<th>Pred ${j}</th>`;
+  }
+  html += `<th class="blank"></th><th>Precision</th></tr></thead><tbody>`;
+
+  for (let i = 0; i < numClasses; i++) {
+    html += `<tr><th>Actual ${i}</th>`;
+    for (let j = 0; j < numClasses; j++) {
+      const val = matrix[i][j];
+      const cls = i === j ? "correct" : (val > 0 ? "incorrect" : "blank");
+      html += `<td class="${cls}">${val}</td>`;
+    }
+    html += `<td class="blank"></td><td>${(perClass[i].precision).toFixed(1)}%</td></tr>`;
+  }
+
+  // 召回率行
+  html += `<tr><th></th>`;
+  for (let j = 0; j < numClasses; j++) {
+    html += `<th></th>`;
+  }
+  html += `<th class="blank"></th><th></th></tr>`;
+
+  html += `<tr><th>Recall</th>`;
+  for (let j = 0; j < numClasses; j++) {
+    html += `<td>${(perClass[j].recall).toFixed(1)}%</td>`;
+  }
+  html += `<th class="blank"></th><th></th></tr>`;
+
+  html += `<tr><th>F1-Score</th>`;
+  for (let j = 0; j < numClasses; j++) {
+    html += `<td>${(perClass[j].f1).toFixed(1)}%</td>`;
+  }
+  html += `<th class="blank"></th><th></th></tr>`;
+
+  html += `</tbody></table>`;
+  wrap.innerHTML = html;
+
+  // 统计摘要
+  let statsHtml = `
+    <div class="stat-item">总样本数: <span class="stat-value">${total}</span></div>
+    <div class="stat-item">正确预测: <span class="stat-value">${correct}</span></div>
+    <div class="stat-item">总体准确率: <span class="stat-value">${overallAcc.toFixed(1)}%</span></div>
+  `;
+  // 加权平均 F1
+  let totalF1 = 0, totalSupport = 0;
+  for (let c = 0; c < numClasses; c++) {
+    totalF1 += perClass[c].f1 * perClass[c].support;
+    totalSupport += perClass[c].support;
+  }
+  const macroF1 = totalSupport > 0 ? (totalF1 / totalSupport) : 0;
+  statsHtml += `<div class="stat-item">加权平均 F1: <span class="stat-value">${macroF1.toFixed(1)}%</span></div>`;
+  statsEl.innerHTML = statsHtml;
 }
 
-// 可视化控制按钮
-document.getElementById("vizPlayBtn").addEventListener("click", () => {
+// ============================================================
+//  决策边界可视化 (2D 分类)
+// ============================================================
+
+const decisionCanvas = document.getElementById("decisionCanvas");
+const ctxDecision = decisionCanvas.getContext("2d");
+
+function resizeDecisionCanvas() {
+  decisionCanvas.width = decisionCanvas.offsetWidth;
+  decisionCanvas.height = Math.max(400, decisionCanvas.offsetWidth * 0.75);
+}
+window.addEventListener("resize", () => { resizeDecisionCanvas(); });
+resizeDecisionCanvas();
+
+// 为分类任务生成颜色
+function getClassColor(classIdx, alpha) {
+  const colors = [
+    `rgba(255, 59, 48, ${alpha})`,     // 红
+    `rgba(52, 199, 89, ${alpha})`,     // 绿
+    `rgba(0, 122, 255, ${alpha})`,     // 蓝
+    `rgba(255, 149, 0, ${alpha})`,     // 橙
+    `rgba(175, 82, 222, ${alpha})`,    // 紫
+    `rgba(90, 200, 250, ${alpha})`,    // 青
+    `rgba(255, 214, 10, ${alpha})`,    // 黄
+    `rgba(255, 55, 95, ${alpha})`,     // 粉
+  ];
+  return colors[classIdx % colors.length];
+}
+
+function drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses) {
+  const W = decisionCanvas.width;
+  const H = decisionCanvas.height;
+  const resolution = parseInt(document.getElementById("boundaryResolution").value) || 150;
+
+  // 计算数据范围（含测试集）
+  let allX = [];
+  if (trainData) {
+    trainData.forEach(d => { if (d[0] && d[0].length >= 2) { allX.push(d[0][0], d[0][1]); } });
+  }
+  if (testData) {
+    testData.forEach(d => { if (d[0] && d[0].length >= 2) { allX.push(d[0][0], d[0][1]); } });
+  }
+  if (allX.length === 0) return;
+
+  const xMin = Math.min(...allX), xMax = Math.max(...allX);
+  const yMin = Math.min(...allX), yMax = Math.max(...allX);
+  const margin = (xMax - xMin) * 0.15 || 1;
+
+  // 为每个像素做预测
+  const imageData = ctxDecision.createImageData(W, H);
+
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const x = xMin - margin + (px / W) * (xMax - xMin + 2 * margin);
+      const y = yMin - margin + ((H - py) / H) * (yMax - yMin + 2 * margin);
+
+      forward(net, [x, y], activation, false, networkType, null);
+      const outputLayer = net[net.length - 1];
+
+      // 找到概率最高的类别
+      let bestClass = 0, maxP = outputLayer[0].a;
+      for (let n = 1; n < outputLayer.length; n++) {
+        if (outputLayer[n].a > maxP) { maxP = outputLayer[n].a; bestClass = n; }
+      }
+
+      const idx = (py * W + px) * 4;
+      // 从颜色字符串中解析
+      const colorStr = getClassColor(bestClass, 0.35);
+      // 简单映射
+      const colors = [
+        [255, 59, 48],
+        [52, 199, 89],
+        [0, 122, 255],
+        [255, 149, 0],
+        [175, 82, 222],
+        [90, 200, 250],
+        [255, 214, 10],
+        [255, 55, 95],
+      ];
+      const c = colors[bestClass % colors.length];
+      imageData.data[idx] = c[0];
+      imageData.data[idx + 1] = c[1];
+      imageData.data[idx + 2] = c[2];
+      imageData.data[idx + 3] = 90; // alpha ~0.35 * 255
+    }
+  }
+  ctxDecision.putImageData(imageData, 0, 0);
+
+  // 绘制训练数据点
+  const drawPoint = (x, y, classIdx, isTest) => {
+    const px = ((x - (xMin - margin)) / (xMax - xMin + 2 * margin)) * W;
+    const py = H - ((y - (yMin - margin)) / (yMax - yMin + 2 * margin)) * H;
+    ctxDecision.beginPath();
+    ctxDecision.arc(px, py, isTest ? 5 : 6, 0, Math.PI * 2);
+    ctxDecision.fillStyle = getClassColor(classIdx, 1.0);
+    ctxDecision.fill();
+    ctxDecision.strokeStyle = isTest ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.8)";
+    ctxDecision.lineWidth = isTest ? 1 : 2;
+    ctxDecision.stroke();
+    if (isTest) {
+      // 测试集用 X 标记
+      ctxDecision.beginPath();
+      ctxDecision.moveTo(px - 3, py - 3);
+      ctxDecision.lineTo(px + 3, py + 3);
+      ctxDecision.moveTo(px + 3, py - 3);
+      ctxDecision.lineTo(px - 3, py + 3);
+      ctxDecision.strokeStyle = "rgba(255,255,255,0.7)";
+      ctxDecision.lineWidth = 1.5;
+      ctxDecision.stroke();
+    }
+  };
+
+  // 绘制训练集
+  if (trainData) {
+    trainData.forEach(d => {
+      if (!d[0] || d[0].length < 2) return;
+      const x = d[0][0], y = d[0][1];
+      const label = d[1];
+      let cls = 0;
+      for (let n = 1; n < label.length; n++) {
+        if (label[n] > label[cls]) cls = n;
+      }
+      drawPoint(x, y, cls, false);
+    });
+  }
+
+  // 绘制测试集
+  if (testData) {
+    testData.forEach(d => {
+      if (!d[0] || d[0].length < 2) return;
+      const x = d[0][0], y = d[0][1];
+      const label = d[1];
+      let cls = 0;
+      for (let n = 1; n < label.length; n++) {
+        if (label[n] > label[cls]) cls = n;
+      }
+      drawPoint(x, y, cls, true);
+    });
+  }
+
+  // 图例
+  const legendX = 12, legendY = 12;
+  ctxDecision.font = "11px 'Segoe UI'";
+  for (let c = 0; c < numClasses; c++) {
+    ctxDecision.fillStyle = getClassColor(c, 1.0);
+    ctxDecision.fillRect(legendX, legendY + c * 18, 12, 12);
+    ctxDecision.strokeStyle = "rgba(255,255,255,0.3)";
+    ctxDecision.strokeRect(legendX, legendY + c * 18, 12, 12);
+    ctxDecision.fillStyle = "#ccc";
+    ctxDecision.fillText(`类别 ${c}`, legendX + 18, legendY + c * 18 + 10);
+  }
+
+  // 图例：实心=训练集，空心=测试集
+  const legendBase = legendY + numClasses * 18 + 8;
+  ctxDecision.beginPath();
+  ctxDecision.arc(legendX + 6, legendBase + 5, 5, 0, Math.PI * 2);
+  ctxDecision.fillStyle = "rgba(255,255,255,0.7)";
+  ctxDecision.fill();
+  ctxDecision.strokeStyle = "rgba(255,255,255,0.8)";
+  ctxDecision.lineWidth = 1.5;
+  ctxDecision.stroke();
+  ctxDecision.fillStyle = "#ccc";
+  ctxDecision.fillText("训练集", legendX + 18, legendBase + 9);
+
+  ctxDecision.beginPath();
+  ctxDecision.arc(legendX + 6, legendBase + 22, 5, 0, Math.PI * 2);
+  ctxDecision.strokeStyle = "rgba(255,255,255,0.5)";
+  ctxDecision.lineWidth = 1.5;
+  ctxDecision.stroke();
+  ctxDecision.moveTo(legendX + 3, legendBase + 19);
+  ctxDecision.lineTo(legendX + 9, legendBase + 25);
+  ctxDecision.moveTo(legendX + 9, legendBase + 19);
+  ctxDecision.lineTo(legendX + 3, legendBase + 25);
+  ctxDecision.strokeStyle = "rgba(255,255,255,0.5)";
+  ctxDecision.stroke();
+  ctxDecision.fillStyle = "#ccc";
+  ctxDecision.fillText("测试集", legendX + 18, legendBase + 26);
+}
+
+// 决策边界按钮
+document.getElementById("drawBoundaryBtn").addEventListener("click", () => {
   if (!currentWeights) {
     statusEl.textContent = "⚠️ 请先训练网络";
     return;
   }
-  if (vizAnimating) {
-    stopVizAnimation();
-    document.getElementById("vizPlayBtn").textContent = "▶ 播放动画";
-  } else {
-    const layerSizes  = getLayerSizes();
-    const allRaw = getAllRawData();
-    const n  = parseInt(document.getElementById("inputSize").value) || 1;
-    const out = parseInt(document.getElementById("outputSize").value) || 1;
-    const trainData = allRaw.map(r => [r.slice(0, n), r.slice(n, n + out)]);
-    const net = buildNetwork(layerSizes);
-    applyWeights(net, currentWeights);
-    document.getElementById("vizPlayBtn").textContent = "⏸ 暂停";
-    startVizAnimation(net, trainData, document.getElementById("activation").value, document.getElementById("networkType").value);
+  const inputSize = parseInt(document.getElementById("inputSize").value) || 1;
+  if (inputSize !== 2) {
+    statusEl.textContent = "⚠️ 决策边界可视化仅支持输入维度为 2 的网络";
+    return;
   }
-});
+  const networkType = document.getElementById("networkType").value;
+  if (networkType !== "classification") {
+    statusEl.textContent = "⚠️ 决策边界可视化仅适用于分类任务";
+    return;
+  }
 
-document.getElementById("vizStepBtn").addEventListener("click", () => {
-  if (!currentWeights) return;
   const layerSizes  = getLayerSizes();
   const allRaw = getAllRawData();
   const n  = parseInt(document.getElementById("inputSize").value) || 1;
   const out = parseInt(document.getElementById("outputSize").value) || 1;
-  const trainData = allRaw.map(r => [r.slice(0, n), r.slice(n, n + out)]);
-  if (!vizNet) {
-    vizNet = buildNetwork(layerSizes);
-    applyWeights(vizNet, currentWeights);
-    vizLayerSizes = layerSizes;
-    vizNodePositions = calcNodePositions(vizLayerSizes);
-  }
-  const x = trainData[Math.floor(Math.random() * trainData.length)][0];
-  forward(vizNet, x, document.getElementById("activation").value, false, document.getElementById("networkType").value, null);
-  drawNetworkStatic();
+  const allData = allRaw.map(r => [r.slice(0, n), r.slice(n, n + out)]);
+  const activation = document.getElementById("activation").value;
+  const numClasses = out;
+
+  const net = buildNetwork(layerSizes);
+  applyWeights(net, currentWeights);
+
+  // 使用全部数据（含测试集）绘制
+  drawDecisionBoundary(net, allData, null, activation, networkType, numClasses);
+  document.getElementById("decisionMsg").textContent =
+    "✅ 决策边界已绘制。背景色表示模型预测的类别，实心圆 = 训练样本，空心圆 = 测试样本。";
+  statusEl.textContent = "✅ 决策边界绘制完成";
 });
 
-document.getElementById("vizResetBtn").addEventListener("click", () => {
-  stopVizAnimation();
-  vizNet = null;
-  vizLayerSizes = [];
-  vizNodePositions = [];
-  document.getElementById("vizPlayBtn").textContent = "▶ 播放动画";
-  resizeVizCanvas();
-  drawNetworkStatic();
-});
-
-document.getElementById("vizSpeed").addEventListener("change", () => {
-  if (vizAnimating && currentWeights) {
-    const layerSizes  = getLayerSizes();
-    const allRaw = getAllRawData();
-    const n  = parseInt(document.getElementById("inputSize").value) || 1;
-    const out = parseInt(document.getElementById("outputSize").value) || 1;
-    const trainData = allRaw.map(r => [r.slice(0, n), r.slice(n, n + out)]);
-    const net = buildNetwork(layerSizes);
-    applyWeights(net, currentWeights);
-    startVizAnimation(net, trainData, document.getElementById("activation").value, document.getElementById("networkType").value);
-  }
-});
-
-document.getElementById("vizDisplayMode").addEventListener("change", (e) => {
-  vizDisplayMode = e.target.value;
-  if (vizNet) drawNetworkStatic();
+document.getElementById("clearBoundaryBtn").addEventListener("click", () => {
+  const W = decisionCanvas.width;
+  const H = decisionCanvas.height;
+  ctxDecision.clearRect(0, 0, W, H);
+  document.getElementById("decisionMsg").textContent =
+    "仅适用于输入维度为 2 的分类任务。请先训练网络，然后点击「绘制决策边界」。";
 });
 
 // ============================================================
-//  预设示例（更新：增加 batchSize 默认、useTestSet 默认）
+//  预设示例
 // ============================================================
 
 function loadExampleCommon() {
@@ -1810,6 +2052,7 @@ document.getElementById("exXOR").addEventListener("click", () => {
   document.getElementById("batchSize").value = 4;
   document.getElementById("activation").value = "leaky_relu";
   document.getElementById("networkType").value = "regression";
+  document.getElementById("optimizer").value = "adam";
   useDropoutCb.checked = false; dropoutField.style.display = "none";
   useL2Cb.checked = false; l2Field.style.display = "none";
   syncInputSize();
@@ -1820,6 +2063,8 @@ document.getElementById("exXOR").addEventListener("click", () => {
   updateInputOutputLock();
   rebuildInferInputs();
   statusEl.textContent = "✅ 已加载 XOR 示例 — 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
 // 示例2：非线性函数拟合 y = x²
@@ -1838,6 +2083,7 @@ document.getElementById("exNonlinear").addEventListener("click", () => {
   document.getElementById("batchSize").value = 16;
   document.getElementById("activation").value = "leaky_relu";
   document.getElementById("networkType").value = "regression";
+  document.getElementById("optimizer").value = "adam";
   useDropoutCb.checked = false; dropoutField.style.display = "none";
   useL2Cb.checked = false; l2Field.style.display = "none";
   syncInputSize();
@@ -1848,6 +2094,8 @@ document.getElementById("exNonlinear").addEventListener("click", () => {
   updateInputOutputLock();
   rebuildInferInputs();
   statusEl.textContent = "✅ 已加载非线性函数示例 (y = x²) — 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
 // 示例3：正弦函数曲线拟合
@@ -1866,6 +2114,7 @@ document.getElementById("exCurve").addEventListener("click", () => {
   document.getElementById("batchSize").value = 32;
   document.getElementById("activation").value = "tanh";
   document.getElementById("networkType").value = "regression";
+  document.getElementById("optimizer").value = "adam";
   useDropoutCb.checked = false; dropoutField.style.display = "none";
   useL2Cb.checked = false; l2Field.style.display = "none";
   syncInputSize();
@@ -1876,6 +2125,8 @@ document.getElementById("exCurve").addEventListener("click", () => {
   updateInputOutputLock();
   rebuildInferInputs();
   statusEl.textContent = "✅ 已加载曲线拟合示例 (y = sin(x)) — 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
 // 示例4：鸢尾花分类
@@ -1898,6 +2149,7 @@ document.getElementById("exIris").addEventListener("click", () => {
   document.getElementById("batchSize").value = 16;
   document.getElementById("activation").value = "leaky_relu";
   document.getElementById("networkType").value = "classification";
+  document.getElementById("optimizer").value = "adam";
   useDropoutCb.checked = true; dropoutField.style.display = "block";
   document.getElementById("dropoutRate").value = 0.2;
   useL2Cb.checked = true; l2Field.style.display = "block";
@@ -1921,6 +2173,8 @@ document.getElementById("exIris").addEventListener("click", () => {
   updateInputOutputLock();
   rebuildInferInputs();
   statusEl.textContent = "✅ 已加载鸢尾花分类示例（3 类）— 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
 // 示例5：螺旋分类
@@ -1943,6 +2197,7 @@ document.getElementById("exSpiral").addEventListener("click", () => {
   document.getElementById("batchSize").value = 32;
   document.getElementById("activation").value = "leaky_relu";
   document.getElementById("networkType").value = "classification";
+  document.getElementById("optimizer").value = "adam";
   useDropoutCb.checked = true; dropoutField.style.display = "block";
   document.getElementById("dropoutRate").value = 0.2;
   useL2Cb.checked = false; l2Field.style.display = "none";
@@ -1962,6 +2217,8 @@ document.getElementById("exSpiral").addEventListener("click", () => {
   updateInputOutputLock();
   rebuildInferInputs();
   statusEl.textContent = "✅ 已加载螺旋分类示例（2 类）— 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
 // 示例6：数字分类
@@ -1984,6 +2241,7 @@ document.getElementById("exDigits").addEventListener("click", () => {
   document.getElementById("batchSize").value = 16;
   document.getElementById("activation").value = "leaky_relu";
   document.getElementById("networkType").value = "classification";
+  document.getElementById("optimizer").value = "adam";
   useDropoutCb.checked = true; dropoutField.style.display = "block";
   document.getElementById("dropoutRate").value = 0.15;
   useL2Cb.checked = true; l2Field.style.display = "block";
@@ -2003,6 +2261,8 @@ document.getElementById("exDigits").addEventListener("click", () => {
   updateInputOutputLock();
   rebuildInferInputs();
   statusEl.textContent = "✅ 已加载数字分类示例（4 类）— 点击「开始训练」";
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 });
 
 // ===== 训练按钮 =====
@@ -2016,14 +2276,15 @@ trainBtn.addEventListener("click", async () => {
   lossHistory = [];
   accHistory = [];
   testLossHistory = [];
+  lastTestData = null;
 
   trainBtn.disabled = true;
   statusEl.textContent = "准备训练...";
   clearLossChart();
 
-  // 停止可视化动画
-  stopVizAnimation();
-  document.getElementById("vizPlayBtn").textContent = "▶ 播放动画";
+  // 隐藏旧的结果面板
+  document.getElementById("confusionPanel").style.display = "none";
+  document.getElementById("decisionBoundaryPanel").style.display = "none";
 
   const layerSizes   = getLayerSizes();
   const allRawData   = getAllRawData();
@@ -2036,6 +2297,7 @@ trainBtn.addEventListener("click", async () => {
   const l2Lambda     = useL2Cb.checked ? parseFloat(document.getElementById("l2Lambda").value) : 0;
   const useTest      = useTestSetCb.checked;
   const testRatio    = parseFloat(document.getElementById("testRatio").value) || 0.2;
+  const optimizer    = document.getElementById("optimizer").value;
 
   const n  = parseInt(document.getElementById("inputSize").value) || 1;
   const out = parseInt(document.getElementById("outputSize").value) || 1;
@@ -2053,10 +2315,12 @@ trainBtn.addEventListener("click", async () => {
     const split = splitTrainTest(allRawData, testRatio);
     trainData = split.trainSet;
     testData  = split.testSet;
+    lastTestData = testData;
     statusEl.textContent = `数据划分: 训练 ${trainData.length} 样本, 测试 ${testData.length} 样本`;
   } else {
     trainData = allRawData.map(r => [r.slice(0, n), r.slice(n, n + out)]);
     testData = [];
+    lastTestData = [];
   }
 
   // 分类网络：检查 one-hot
@@ -2076,11 +2340,12 @@ trainBtn.addEventListener("click", async () => {
   await new Promise(r => setTimeout(r, 50));
 
   statusEl.textContent = "训练中...";
+  hideChartPlaceholder();
 
   const net = buildNetwork(layerSizes);
   const startTime = performance.now();
 
-  const results = train(net, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, (epoch, loss, testLoss, accInfo) => {
+  const results = train(net, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, (epoch, loss, testLoss, accInfo) => {
     const pct = Math.min(100, Math.round(epoch / epochs * 100));
     progressFill.style.width = pct + "%";
     const lossLabel = networkType === "classification" ? "CE" : "MSE";
@@ -2100,11 +2365,6 @@ trainBtn.addEventListener("click", async () => {
   testLossHistory= results.testLosses;
   accHistory     = results.accuracies;
 
-  // 更新可视化网络引用
-  vizNet = net;
-  vizLayerSizes = layerSizes;
-  vizNodePositions = calcNodePositions(layerSizes);
-
   statusEl.textContent = `✅ 训练完成！耗时 ${elapsed}s，Final Loss: ${results.losses[results.losses.length - 1].toFixed(10)}` +
     (results.accuracies.length > 0 && results.accuracies[results.accuracies.length-1] !== null
       ? `，Test Acc: ${(results.accuracies[results.accuracies.length-1]*100).toFixed(1)}%`
@@ -2113,6 +2373,22 @@ trainBtn.addEventListener("click", async () => {
   isTraining = false;
 
   drawLossChart(results.losses, results.testLosses, results.accuracies, networkType);
+
+  // ===== 分类任务：显示混淆矩阵 + 决策边界 =====
+  if (networkType === "classification" && testData.length > 0) {
+    const numClasses = out;
+    const cm = computeConfusionMatrix(net, testData, networkType, activation, numClasses);
+    renderConfusionMatrix(cm.matrix, numClasses);
+    document.getElementById("confusionPanel").style.display = "block";
+
+    // 如果输入维度为 2，显示决策边界面板
+    if (n === 2) {
+      document.getElementById("decisionBoundaryPanel").style.display = "block";
+      drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses);
+      document.getElementById("decisionMsg").textContent =
+        "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心 X = 测试集。";
+    }
+  }
 });
 
 // ===== 收集全部训练数据（带 raw 值） =====
@@ -2139,10 +2415,10 @@ function setAllTrainData(rawData, inputSize, outputSize) {
   updateInputOutputLock();
 }
 
-// ===== 构建模型 JSON（含测试集配置） =====
+// ===== 构建模型 JSON =====
 function buildModelJSON() {
   return {
-    version: 3,
+    version: 4,
     savedAt: new Date().toISOString(),
     config: {
       layerSizes: getLayerSizes(),
@@ -2151,6 +2427,7 @@ function buildModelJSON() {
       batchSize: parseInt(document.getElementById("batchSize").value) || 16,
       activation: document.getElementById("activation").value,
       networkType: document.getElementById("networkType").value,
+      optimizer: document.getElementById("optimizer").value,
       useDropout: useDropoutCb.checked,
       dropoutRate: useDropoutCb.checked ? parseFloat(document.getElementById("dropoutRate").value) : undefined,
       useL2: useL2Cb.checked,
@@ -2173,6 +2450,7 @@ function restoreFromModelJSON(parsed) {
   document.getElementById("batchSize").value = cfg.batchSize || 16;
   document.getElementById("activation").value = cfg.activation;
   document.getElementById("networkType").value = cfg.networkType || "regression";
+  document.getElementById("optimizer").value = cfg.optimizer || "adam";
   useDropoutCb.checked = cfg.useDropout || false;
   dropoutField.style.display = useDropoutCb.checked ? "block" : "none";
   if (cfg.dropoutRate !== undefined) document.getElementById("dropoutRate").value = cfg.dropoutRate;
@@ -2208,12 +2486,29 @@ function restoreFromModelJSON(parsed) {
     lossHistory = parsed.lossHistory;
     testLossHistory = parsed.testLossHistory || [];
     accHistory = parsed.accHistory || [];
+    hideChartPlaceholder();
     drawLossChart(lossHistory, testLossHistory, accHistory, cfg.networkType || "regression");
   }
 
-  vizNet = net;
-  vizLayerSizes = layerSizes;
-  vizNodePositions = calcNodePositions(layerSizes);
+  // 恢复混淆矩阵（如果有测试数据）
+  if (cfg.networkType === "classification" && parsed.trainData) {
+    const n = layerSizes[0];
+    const out = layerSizes[layerSizes.length - 1];
+    // 尝试从当前数据恢复测试集
+    const allRaw = getAllRawData();
+    if (allRaw.length > 0 && useTestSetCb.checked) {
+      const split = splitTrainTest(allRaw, parseFloat(document.getElementById("testRatio").value) || 0.2);
+      if (split.testSet.length > 0) {
+        const cm = computeConfusionMatrix(net, split.testSet, cfg.networkType, cfg.activation, out);
+        renderConfusionMatrix(cm.matrix, out);
+        document.getElementById("confusionPanel").style.display = "block";
+      }
+      if (n === 2) {
+        document.getElementById("decisionBoundaryPanel").style.display = "block";
+        drawDecisionBoundary(net, split.trainSet, split.testSet, cfg.activation, cfg.networkType, out);
+      }
+    }
+  }
 
   syncInputSize();
   rebuildInferInputs();
@@ -2229,7 +2524,7 @@ document.getElementById("saveBtn").addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const ts = new Date();
   const tsStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,"0")}${String(ts.getDate()).padStart(2,"0")}_${String(ts.getHours()).padStart(2,"0")}${String(ts.getMinutes()).padStart(2,"0")}${String(ts.getSeconds()).padStart(2,"0")}`;
-  const filename = `nn_model_${tsStr}.json`;
+  const filename = `nn-model_${tsStr}.json`;
   const a = document.createElement("a");
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click();
@@ -2275,12 +2570,6 @@ document.getElementById("inferBtn").addEventListener("click", () => {
   applyWeights(net, currentWeights);
   const output = forward(net, inputs, activation, false, networkType, null);
 
-  // 更新可视化
-  vizNet = net;
-  vizLayerSizes = layerSizes;
-  vizNodePositions = calcNodePositions(layerSizes);
-  drawNetworkStatic();
-
   if (networkType === "classification") {
     let html = `<table class="class-result-table"><thead><tr><th>类别</th><th>概率</th></tr></thead><tbody>`;
     let maxIdx = 0;
@@ -2293,6 +2582,23 @@ document.getElementById("inferBtn").addEventListener("click", () => {
     inferResult.innerHTML = html;
   } else {
     inferResult.innerHTML = `🎯 预测输出: [${output.map(v => v.toFixed(8)).join(", ")}]`;
+  }
+});
+
+// ===== 右侧列高度同步 =====
+function syncRightColHeight() {
+  const leftCol = document.querySelector('.layout > div:first-child');
+  const rightCol = document.querySelector('.right-col');
+  if (!leftCol || !rightCol) return;
+  const leftH = leftCol.offsetHeight;
+  rightCol.style.minHeight = leftH + 'px';
+}
+window.addEventListener('load', () => {
+  syncRightColHeight();
+  window.addEventListener('resize', syncRightColHeight);
+  const rc = document.querySelector('.right-col');
+  if (rc) {
+    new MutationObserver(syncRightColHeight).observe(rc, { childList: true, subtree: true });
   }
 });
 
@@ -2311,14 +2617,21 @@ document.getElementById("inferBtn").addEventListener("click", () => {
       }
     }
   });
+  showChartPlaceholder();
 })();
 
+function showChartPlaceholder() {
+  const el = document.getElementById("chartPlaceholder");
+  if (el) el.classList.remove("hidden");
+}
+function hideChartPlaceholder() {
+  const el = document.getElementById("chartPlaceholder");
+  if (el) el.classList.add("hidden");
+}
 function clearLossChart() {
   if (lossChart) { lossChart.destroy(); lossChart = null; }
+  showChartPlaceholder();
 }
-
-// 初始绘制空可视化
-drawNetworkStatic();
 
 </script>
 </body>
