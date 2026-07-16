@@ -343,14 +343,14 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 300px;
-  max-height: 134vh;
+  max-height: 139vh;
 }
 .data-edit-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
 .data-edit-scroll {
   flex: 1;
   overflow: auto;
   min-height: 200px;
-  max-height: calc(134vh - 280px);
+  max-height: calc(139vh - 280px);
 }
 .data-edit-panel .add-btn {
   margin-top: 0;
@@ -710,6 +710,14 @@ h1 { font-size: 24px; margin-bottom: 4px; }
       </div>
 
       <div class="toggle-row">
+        <label class="toggle-label" for="useGPU">启用 WebGL / GPU 加速</label>
+        <span class="toggle-switch">
+          <input type="checkbox" id="useGPU" checked>
+          <span class="toggle-track"></span>
+        </span>
+      </div>
+
+      <div class="toggle-row">
         <label class="toggle-label" for="useEarlyStop">启用早停机制</label>
         <span class="toggle-switch">
           <input type="checkbox" id="useEarlyStop" checked>
@@ -886,6 +894,33 @@ const useL2Cb       = document.getElementById("useL2");
 const l2Field       = document.getElementById("l2Field");
 const useTestSetCb  = document.getElementById("useTestSet");
 const testRatioField = document.getElementById("testRatioField");
+
+// ===== WebGL / GPU 加速控制 =====
+let useGPU = localStorage.getItem("nn_useGPU") !== "false";
+
+// 拦截 getContext 来控制 canvas 的 GPU 加速
+const _origGetContext = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function(type, opts) {
+  if (type === "2d") {
+    return _origGetContext.call(this, type, {
+      ...(opts || {}),
+      willReadFrequently: !useGPU
+    });
+  }
+  return _origGetContext.call(this, type, opts);
+};
+
+function applyGPUSetting() {
+  const gpuCb = document.getElementById("useGPU");
+  if (gpuCb) gpuCb.checked = useGPU;
+}
+
+function recreateChartIfNeeded() {
+  // 如果已有图表数据，重新绘制
+  if (lossHistory.length > 0) {
+    drawLossChart(lossHistory, testLossHistory, accHistory, document.getElementById("networkType").value);
+  }
+}
 
 let currentWeights = null;
 let lossHistory    = [];
@@ -1298,6 +1333,19 @@ useL2Cb.addEventListener("change", () => {
 useTestSetCb.addEventListener("change", () => {
   testRatioField.style.display = useTestSetCb.checked ? "block" : "none";
 });
+
+// GPU 加速开关
+const useGPUCb = document.getElementById("useGPU");
+useGPUCb.addEventListener("change", () => {
+  useGPU = useGPUCb.checked;
+  localStorage.setItem("nn_useGPU", useGPU);
+  // GPU 设置需要在下次渲染时生效，这里提示用户
+  statusEl.textContent = useGPU
+    ? "✅ WebGL / GPU 加速已启用（下次训练/渲染时将生效）"
+    : "⚠️ WebGL / GPU 加速已禁用，将使用软件渲染（重新训练或刷新页面后生效）";
+});
+// 初始化 GPU 开关状态
+useGPUCb.checked = useGPU;
 
 // 暗色箭头按钮：事件委托
 document.addEventListener("click", (e) => {
@@ -2357,6 +2405,7 @@ function buildModelJSON() {
       l2Lambda: useL2Cb.checked ? parseFloat(document.getElementById("l2Lambda").value) : undefined,
       useTestSet: useTestSetCb.checked,
       testRatio: useTestSetCb.checked ? parseFloat(document.getElementById("testRatio").value) : undefined,
+      useGPU: useGPU,
     },
     weights: currentWeights,
     trainData: getAllTrainData(),
@@ -2383,6 +2432,13 @@ function restoreFromModelJSON(parsed) {
   useTestSetCb.checked = cfg.useTestSet || false;
   testRatioField.style.display = useTestSetCb.checked ? "block" : "none";
   if (cfg.testRatio !== undefined) document.getElementById("testRatio").value = cfg.testRatio;
+
+  // 恢复 GPU 设置
+  if (cfg.useGPU !== undefined) {
+    useGPU = cfg.useGPU;
+    localStorage.setItem("nn_useGPU", useGPU);
+    useGPUCb.checked = useGPU;
+  }
 
   const layerSizes = cfg.layerSizes;
   const net = buildNetwork(layerSizes);
