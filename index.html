@@ -373,14 +373,14 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 300px;
-  max-height: 120vh;
+  max-height: 128vh;
 }
 .data-edit-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
 .data-edit-scroll {
   flex: 1;
   overflow: auto;
   min-height: 200px;
-  max-height: calc(120vh - 280px);
+  max-height: calc(128vh - 280px);
 }
 .data-edit-panel .add-btn {
   margin-top: 0;
@@ -667,6 +667,23 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   transform: scale(0.95);
 }
 
+/* ===== GitHub 项目链接 ===== */
+.github-link {
+  font-size: 13px;
+  font-weight: 400;
+  color: #58a6ff;
+  text-decoration: none;
+  background: rgba(88,166,255,0.1);
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(88,166,255,0.25);
+  transition: all 0.2s;
+}
+.github-link:hover {
+  background: rgba(88,166,255,0.2);
+  border-color: rgba(88,166,255,0.45);
+}
+
 /* ===== 亮色主题覆盖 ===== */
 body.light {
   background: #f5f5f7;
@@ -751,13 +768,18 @@ body.light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
 body.light * { scrollbar-color: rgba(0,0,0,0.12) rgba(0,0,0,0.04); }
 body.light .example-btn { background: rgba(167,139,250,0.06); border-color: rgba(167,139,250,0.15); }
 body.light .example-btn:hover { background: rgba(167,139,250,0.12); }
+body.light .github-link { color: #0969da; background: rgba(9,105,218,0.08); border-color: rgba(9,105,218,0.2); }
+body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: rgba(9,105,218,0.35); }
 </style>
 </head>
 <body>
 
 <button class="theme-toggle" id="themeToggle" title="切换主题" aria-label="切换亮色/暗色主题">🌙</button>
 
-<h1>🧠 神经网络训练器</h1>
+<h1 style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+  <span>🧠 神经网络训练器</span>
+  <a href="https://github.com/RSSeeker/RSSeeker.github.io" target="_blank" rel="noopener" class="github-link">🔗 GitHub</a>
+</h1>
 <p class="subtitle"></p>
 
 <div class="layout">
@@ -840,6 +862,14 @@ body.light .example-btn:hover { background: rgba(167,139,250,0.12); }
         <label>批大小 (batch size)</label>
         <span class="num-wrap">
           <input type="number" id="batchSize" value="16" min="1">
+          <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </span>
+      </div>
+      <div class="field">
+        <label>随机种子 (留空=随机)</label>
+        <span class="num-wrap">
+          <input type="number" id="randomSeed" value="" step="1" min="0" placeholder="留空随机">
           <span class="num-btn up" data-dir="up"><svg viewBox="0 0 12 12"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span class="num-btn down" data-dir="down"><svg viewBox="0 0 12 12"><path d="M2 3 L6 9 L10 3" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         </span>
@@ -1047,10 +1077,32 @@ function isLightTheme() { return document.body.classList.contains("light"); }
 // 主题切换回调：重绘图表和决策边界
 function onThemeChange() {
   if (lossChart) {
-    const gridClr = isLightTheme() ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)";
+    const light = isLightTheme();
+    const gridClr = light ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)";
     lossChart.options.scales.x.grid.color = gridClr;
     lossChart.options.scales.y.grid.color = gridClr;
     if (lossChart.options.scales.y1) lossChart.options.scales.y1.grid.color = gridClr;
+    // 更新 tooltip 配色
+    const tooltip = lossChart.options.plugins.tooltip;
+    if (tooltip) {
+      tooltip.backgroundColor = light ? 'rgba(255,255,255,0.95)' : 'rgba(20,20,30,0.92)';
+      tooltip.titleColor = light ? '#555' : '#aaa';
+      tooltip.bodyColor = light ? '#0969da' : '#58a6ff';
+      tooltip.borderColor = light ? 'rgba(0,0,0,0.12)' : 'rgba(88,166,255,0.25)';
+    }
+    // 更新 legend 文字颜色
+    if (lossChart.options.plugins.legend) {
+      lossChart.options.plugins.legend.labels.color = light ? '#555' : '#888';
+    }
+    // 更新 scale 标题和刻度文字颜色
+    const scaleTextClr = light ? '#555' : '#888';
+    ['x', 'y', 'y1'].forEach(ax => {
+      const s = lossChart.options.scales[ax];
+      if (s) {
+        if (s.title) s.title.color = scaleTextClr;
+        if (s.ticks) s.ticks.color = scaleTextClr;
+      }
+    });
     lossChart.update("none");
   }
   if (decisionBoundaryData) {
@@ -1060,6 +1112,27 @@ function onThemeChange() {
   const placeholder = document.getElementById("chartPlaceholder");
   if (placeholder) {
     placeholder.style.background = isLightTheme() ? "rgba(245,245,247,0.85)" : "rgba(14,14,17,0.75)";
+  }
+}
+
+// ===== 可随机种子 PRNG (Mulberry32) =====
+let rng = Math.random.bind(Math);  // 默认使用原生 Math.random
+function mulberry32(seed) {
+  let s = seed | 0;
+  return function() {
+    s = s + 0x6D2B79F5 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function setRngFromSeed() {
+  const seedEl = document.getElementById("randomSeed");
+  const val = seedEl ? seedEl.value : "";
+  if (val !== "" && val !== null) {
+    rng = mulberry32(parseInt(val, 10));
+  } else {
+    rng = Math.random.bind(Math);
   }
 }
 
@@ -1145,7 +1218,7 @@ function softmax(arr) {
 // ===== 工具：He 初始化 =====
 function heInit(fanIn) {
   const std = Math.sqrt(2.0 / fanIn);
-  return (Math.random() * 2 - 1) * std;
+  return (rng() * 2 - 1) * std;
 }
 
 // ============================================================
@@ -1215,7 +1288,7 @@ function generateDropoutMask(layerSizes, dropoutRate) {
   for (let l = 1; l < layerSizes.length - 1; l++) {
     mask[l] = [];
     for (let n = 0; n < layerSizes[l]; n++) {
-      mask[l].push(Math.random() > dropoutRate ? 1 : 0);
+      mask[l].push(rng() > dropoutRate ? 1 : 0);
     }
   }
   return mask;
@@ -1256,7 +1329,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
     // ===== Mini-Batch: 打乱 + 分批 =====
     const indices = Array.from({ length: numTrain }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
 
@@ -1743,7 +1816,7 @@ function getAllRawData() {
 function splitTrainTest(rawData, testRatio) {
   const shuffled = rawData.slice();
   for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   const nTest = Math.max(1, Math.floor(shuffled.length * testRatio));
@@ -1826,17 +1899,19 @@ function drawLossChart(losses, testLosses, accuracies, networkType) {
     });
   }
 
-  const gridClr = isLightTheme() ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)";
+  const light = isLightTheme();
+  const gridClr = light ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)";
+  const scaleTextClr = light ? "#555" : "#888";
   const scales = {
     x: {
-      title: { display: true, text: "Epoch", color: "#666" },
+      title: { display: true, text: "Epoch", color: scaleTextClr },
       grid: { color: gridClr },
-      ticks: { color: "#666" }
+      ticks: { color: scaleTextClr }
     },
     y: {
-      title: { display: true, text: lossLabel, color: "#666" },
+      title: { display: true, text: lossLabel, color: scaleTextClr },
       grid: { color: gridClr },
-      ticks: { color: "#666" }
+      ticks: { color: scaleTextClr }
     }
   };
   if (hasAcc) {
@@ -1857,13 +1932,13 @@ function drawLossChart(losses, testLosses, accuracies, networkType) {
       animation: { duration: 300 },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: "#888" } },
+        legend: { labels: { color: isLightTheme() ? '#555' : '#888' } },
         tooltip: {
           enabled: true,
-          backgroundColor: 'rgba(20,20,30,0.92)',
-          titleColor: '#aaa',
-          bodyColor: '#58a6ff',
-          borderColor: 'rgba(88,166,255,0.25)',
+          backgroundColor: isLightTheme() ? 'rgba(255,255,255,0.95)' : 'rgba(20,20,30,0.92)',
+          titleColor: isLightTheme() ? '#555' : '#aaa',
+          bodyColor: isLightTheme() ? '#0969da' : '#58a6ff',
+          borderColor: isLightTheme() ? 'rgba(0,0,0,0.12)' : 'rgba(88,166,255,0.25)',
           borderWidth: 1,
           cornerRadius: 8,
           padding: 10,
@@ -2444,6 +2519,9 @@ trainBtn.addEventListener("click", async () => {
   if (isTraining) return;
   isTraining = true;
 
+  // 根据输入设置随机种子
+  setRngFromSeed();
+
   inferResult.textContent = "";
   progressFill.style.width = "0%";
   progressText.textContent = "0%";
@@ -2602,6 +2680,8 @@ function setAllTrainData(rawData, inputSize, outputSize) {
 
 // ===== 构建模型 JSON =====
 function buildModelJSON() {
+  const seedEl = document.getElementById("randomSeed");
+  const seedVal = seedEl && seedEl.value !== "" && seedEl.value !== null ? parseInt(seedEl.value, 10) : undefined;
   return {
     version: 4,
     savedAt: new Date().toISOString(),
@@ -2613,6 +2693,7 @@ function buildModelJSON() {
       activation: document.getElementById("activation").value,
       networkType: document.getElementById("networkType").value,
       optimizer: document.getElementById("optimizer").value,
+      useEarlyStop: document.getElementById("useEarlyStop").checked,
       useDropout: useDropoutCb.checked,
       dropoutRate: useDropoutCb.checked ? parseFloat(document.getElementById("dropoutRate").value) : undefined,
       useL2: useL2Cb.checked,
@@ -2620,6 +2701,7 @@ function buildModelJSON() {
       useTestSet: useTestSetCb.checked,
       testRatio: useTestSetCb.checked ? parseFloat(document.getElementById("testRatio").value) : undefined,
       useGPU: useGPU,
+      randomSeed: seedVal,
     },
     weights: currentWeights,
     trainData: getAllTrainData(),
@@ -2652,6 +2734,17 @@ function restoreFromModelJSON(parsed) {
     useGPU = cfg.useGPU;
     localStorage.setItem("nn_useGPU", useGPU);
     useGPUCb.checked = useGPU;
+  }
+
+  // 恢复早停设置
+  if (cfg.useEarlyStop !== undefined) {
+    document.getElementById("useEarlyStop").checked = cfg.useEarlyStop;
+  }
+
+  // 恢复随机种子
+  const seedEl = document.getElementById("randomSeed");
+  if (seedEl) {
+    seedEl.value = cfg.randomSeed !== undefined ? cfg.randomSeed : "";
   }
 
   const layerSizes = cfg.layerSizes;
