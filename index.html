@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>神经网络训练器</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -56,36 +57,87 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   align-items: start;
 }
 
-/* ===== 移动端适配 ===== */
+/* ===== 响应式适配 ===== */
+
+/* 平板 / 小屏桌面 (≤980px) */
 @media (max-width: 980px) {
   body { padding: 20px 12px; }
   .layout { grid-template-columns: 1fr; }
-  .example-grid { grid-template-columns: 1fr; }
+  .example-grid { grid-template-columns: 1fr 1fr; }
   .panel, .data-edit-panel, .chart-panel, .confusion-panel, .decision-boundary-panel, .infer-panel {
     padding: 18px;
   }
   .field input, .field select, .num-wrap input[type="number"] {
-    font-size: 13px;
+    font-size: 14px;
   }
   .layer-row { flex-wrap: wrap; gap: 10px; }
   .layer-row label { min-width: auto; width: 100%; }
   .layer-row .num-wrap { width: 100%; }
   .layer-row .remove-layer { margin-left: auto; }
+  #lossChart { height: 240px; }
+  #decisionCanvas { min-height: 340px; }
 }
 
-@media (max-width: 640px) {
+/* 平板竖屏 (≤768px) */
+@media (max-width: 768px) {
   body { padding: 16px 10px; }
   h1 { font-size: 20px; }
   .subtitle { font-size: 12px; }
-  .btn, .data-edit-actions .btn { font-size: 12px; padding: 9px 12px; }
-  .data-edit-panel { max-height: none; }
-  .data-edit-scroll { max-height: 220px; }
-  .data-edit-actions { flex-direction: column; }
+  .panel, .data-edit-panel, .chart-panel, .confusion-panel, .decision-boundary-panel, .infer-panel {
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .panel h3, .data-edit-panel h3, .chart-panel h3, .confusion-panel h3,
+  .decision-boundary-panel h3, .infer-panel h3 { font-size: 13px; margin-bottom: 10px; }
+  .btn {
+    font-size: 14px;
+    padding: 12px 0;
+    min-height: 44px;
+    border-radius: 10px;
+  }
+  .btn:disabled { min-height: 44px; }
+  .data-edit-actions .add-btn,
+  .data-edit-actions .clear-btn { min-height: 44px; height: 44px; font-size: 14px; }
+  .example-btn { font-size: 13px; padding: 11px 10px; min-height: 44px; }
+  .field input, .field select { font-size: 14px; padding: 11px 12px; min-height: 44px; }
+  .num-wrap input[type="number"] { font-size: 14px; padding-top: 11px; padding-bottom: 11px; min-height: 44px; }
+  .num-wrap .num-btn { width: 28px; }
+  .layer-row input { font-size: 14px; padding: 10px 10px; min-height: 44px; }
+  .layer-row .remove-layer { width: 38px; height: 38px; font-size: 20px; }
+  .toggle-switch { width: 48px; height: 28px; }
+  .toggle-track::after { width: 22px; height: 22px; top: 3px; left: 3px; }
+  .toggle-switch input:checked + .toggle-track::after { transform: translateX(20px); }
+  #lossChart { height: 220px; }
+  #decisionCanvas { min-height: 280px; }
+  .example-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .data-edit-panel { max-height: none; min-height: 200px; }
+  .data-edit-scroll { max-height: 260px; }
+  .data-table { font-size: 13px; }
+  .data-table th, .data-table td { padding: 8px 6px; }
+  .data-table input { font-size: 13px; padding: 8px 4px; min-width: 48px; }
+  .right-col .data-edit-panel { margin-bottom: 40px; }
+  .theme-toggle { top: 14px; right: 14px; width: 44px; height: 44px; }
+}
+
+/* 手机 (≤480px) */
+@media (max-width: 480px) {
+  body { padding: 12px 8px; }
+  h1 { font-size: 18px; }
+  .layout { gap: 14px; }
+  .panel, .data-edit-panel, .chart-panel, .confusion-panel, .decision-boundary-panel, .infer-panel {
+    padding: 14px;
+  }
   .btn-row { flex-direction: column; }
   .btn-row .btn { width: 100%; }
-  .example-grid { gap: 12px; }
-  .layer-row { justify-content: stretch; }
-  .data-table th, .data-table td { padding: 6px 3px; }
+  .data-edit-actions { flex-direction: column; }
+  .example-grid { grid-template-columns: 1fr; gap: 8px; }
+  .data-edit-scroll { max-height: 240px; }
+  .data-table th, .data-table td { padding: 7px 4px; font-size: 12px; }
+  .data-table input { font-size: 12px; min-width: 44px; }
+  #lossChart { height: 200px; }
+  #decisionCanvas { min-height: 250px; }
+  .github-link { font-size: 12px; padding: 4px 10px; }
+  .theme-toggle { top: 10px; right: 10px; width: 40px; height: 40px; }
 }
 
 /* ===== 通用面板 ===== */
@@ -2712,6 +2764,7 @@ function drawLossChart(losses, testLosses, accuracies, networkType) {
     data: { labels, datasets },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       animation: { duration: 300 },
       interaction: { mode: 'index', intersect: false },
       plugins: {
@@ -2883,7 +2936,10 @@ function resizeDecisionCanvas() {
   const width = decisionCanvas.offsetWidth;
   if (width <= 0) return;
   decisionCanvas.width = width;
-  decisionCanvas.height = Math.max(400, width * 0.75);
+  // 响应式画布高度：手机 250-280，平板 280-340，桌面 400+
+  if (width <= 480)       decisionCanvas.height = Math.max(250, width * 0.7);
+  else if (width <= 768)  decisionCanvas.height = Math.max(280, width * 0.72);
+  else                    decisionCanvas.height = Math.max(400, width * 0.75);
 }
 
 // 窗口 resize 后需要重绘决策边界
@@ -2926,10 +2982,10 @@ function drawDecisionBoundary(net, trainData, testData, activation, networkType,
   const W = decisionCanvas.width;
   const H = decisionCanvas.height;
   if (W <= 0 || H <= 0) return;
-  const minCellSize = 4;
-  const maxCells = 220;
-  const resolutionX = Math.min(maxCells, Math.max(80, Math.ceil(W / minCellSize)));
-  const resolutionY = Math.min(maxCells, Math.max(80, Math.ceil(H / minCellSize)));
+  const minCellSize = W <= 480 ? 6 : 4;
+  const maxCells = W <= 480 ? 120 : (W <= 768 ? 160 : 220);
+  const resolutionX = Math.min(maxCells, Math.max(60, Math.ceil(W / minCellSize)));
+  const resolutionY = Math.min(maxCells, Math.max(60, Math.ceil(H / minCellSize)));
 
   // 计算数据范围（含测试集）
   const xCoords = [];
@@ -4161,7 +4217,7 @@ window.addEventListener('load', () => {
     type: "line",
     data: { labels: [], datasets: [{ label: "Loss", data: [], borderColor: "#58a6ff", backgroundColor: "rgba(88,166,255,0.08)", fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
     options: {
-      responsive: true, animation: false,
+      responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { display: false, grid: { color: gridClr2 }, border: { display: false } },
