@@ -290,7 +290,9 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 300px;
-  max-height: 100vh;
+  /* 与左侧示例面板底部对齐：填满 grid 单元格 */
+  height: 100%;
+  box-sizing: border-box;
 }
 .data-edit-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
 .data-edit-scroll {
