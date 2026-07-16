@@ -1441,7 +1441,7 @@ function getArchitectureType() {
 function getArchFeatureDim(inputSize) {
   const arch = getArchitectureType();
   if (arch === "cnn") {
-    const kernel = Math.min(parseInt(document.getElementById("cnnKernel").value) || 3, inputSize - 1);
+    const kernel = Math.max(1, Math.min(parseInt(document.getElementById("cnnKernel").value) || 3, inputSize - 1));
     const filters = parseInt(document.getElementById("cnnFilters").value) || 8;
     return filters * Math.max(1, inputSize - kernel + 1);
   } else if (arch === "rnn") {
@@ -1453,8 +1453,8 @@ function getArchFeatureDim(inputSize) {
 }
 
 // ===== CNN 1D 模块 =====
-function cnnInit(inputSize) {
-  const kernel = Math.min(parseInt(document.getElementById("cnnKernel").value) || 3, inputSize - 1);
+function cnnInit(inputSize, actName) {
+  const kernel = Math.max(1, Math.min(parseInt(document.getElementById("cnnKernel").value) || 3, inputSize - 1));
   const filters = parseInt(document.getElementById("cnnFilters").value) || 8;
   const w = []; // w[f][k] = weight scalar (single channel)
   const b = new Array(filters).fill(0);
@@ -1462,36 +1462,43 @@ function cnnInit(inputSize) {
     w[f] = [];
     for (let k = 0; k < kernel; k++) w[f].push(heInit(kernel));
   }
-  return { type: "cnn", w, b, kernel, filters, inputSize, cache: null };
+  const act = ACT[actName] || ACT.leaky_relu;
+  return { type: "cnn", w, b, kernel, filters, inputSize, actFn: act.fn, actDeriv: act.deriv, actName, cache: null };
 }
 
 function cnnForward(x, p) {
-  const { w, b, kernel, filters, inputSize } = p;
+  const { w, b, kernel, filters, inputSize, actFn } = p;
   const inLen = x.length;
   const outLen = inLen - kernel + 1;
   if (outLen <= 0) { p.cache = null; return []; }
   const preAct = []; // [f][pos]
+  const postAct = []; // [f][pos]
   const feature = [];
   for (let f = 0; f < filters; f++) {
     preAct[f] = [];
+    postAct[f] = [];
     for (let i = 0; i < outLen; i++) {
       let s = b[f];
       for (let k = 0; k < kernel; k++) s += w[f][k] * x[i + k];
       preAct[f][i] = s;
-      feature.push(ACT.leaky_relu.fn(s));
+      const a = actFn(s);
+      postAct[f][i] = a;
+      feature.push(a);
     }
   }
-  p.cache = { x, preAct };
+  p.cache = { x, preAct, postAct };
   return feature;
 }
 
 function cnnBackward(deltas, p) {
-  const { w, b, kernel, filters, cache } = p;
-  const { x, preAct } = cache;
+  const { w, b, kernel, filters, cache, actDeriv, actName } = p;
+  const { x, preAct, postAct } = cache;
   if (!x) {
     return { gradW: Array(filters).fill(null).map(() => Array(kernel).fill(0)),
              gradB: Array(filters).fill(0), gradX: Array(x ? x.length : 0).fill(0) };
   }
+  // sigmoid/tanh derivatives use post-activation; ReLU-based use pre-activation
+  const usesPost = (actName === "sigmoid" || actName === "tanh");
   const inLen = x.length;
   const outLen = inLen - kernel + 1;
   const gradW = Array.from({length: filters}, () => Array(kernel).fill(0));
@@ -1500,7 +1507,7 @@ function cnnBackward(deltas, p) {
   for (let f = 0; f < filters; f++) {
     for (let i = 0; i < outLen; i++) {
       const idx = f * outLen + i;
-      const dAct = preAct[f][i] > 0 ? 1.0 : 0.01;
+      const dAct = usesPost ? actDeriv(postAct[f][i]) : actDeriv(preAct[f][i]);
       const d = deltas[idx] * dAct;
       gradB[f] += d;
       for (let k = 0; k < kernel; k++) {
@@ -1782,21 +1789,59 @@ function attnBackward(deltas, p) {
     }
   }
 
-  // Gradient to input x
+  // Gradient to input x: backpropagate dQ/dK/dV through Wq/Wk/Wv
   const gradX = Array(inputSize).fill(0);
-  for (let c = 0; c < inputSize; c++) {
+  for (let h = 0; h < numHeads; h++) {
+    const startD = h * dPerHead;
+    // Recompute or re-derive dq, dk, dv from forward quantities
+    const dqH = Q.map(() => Array(dPerHead).fill(0));
+    const dkH = K.map(() => Array(dPerHead).fill(0));
+    const dvH = V.map(() => Array(dPerHead).fill(0));
+
+    const { out: outH, attnW } = headOutputs[h];
+
+    // dv from attention output
     for (let i = 0; i < seqLen; i++) {
-      for (let d = 0; d < embedDim; d++) {
-        gradX[c] += (gradWq[d] ? 0 : 0); // simplified: x gradient from Q/K/V
+      for (let d = 0; d < dPerHead; d++) {
+        const dSrc = dConcat[i][startD + d];
+        for (let j = 0; j < seqLen; j++) {
+          dvH[j][d] += dSrc * attnW[i][j];
+        }
       }
     }
-  }
-  // x gradient: use accumulated Q-grad × wq^T as approximation
-  for (let i = 0; i < seqLen; i++) {
-    for (let c = 0; c < inputSize; c++) {
-      for (let d = 0; d < embedDim; d++) {
-        // Use accumulated dQ gradient (from head-specific dq scaled by wq)
-        gradX[c] += (dConcat[i][d] || 0) * wq[d][c] * 1e-3;
+
+    // softmax gradient → dq, dk
+    const scale = Math.sqrt(dPerHead);
+    const qh = Q.map(q => q.slice(startD, startD + dPerHead));
+    const kh = K.map(k => k.slice(startD, startD + dPerHead));
+    for (let i = 0; i < seqLen; i++) {
+      const vh = V.map(v => v.slice(startD, startD + dPerHead));
+      let sumGradAttn = 0;
+      for (let j = 0; j < seqLen; j++) {
+        let prod = 0;
+        for (let d = 0; d < dPerHead; d++) prod += dConcat[i][startD + d] * vh[j][d];
+        sumGradAttn += attnW[i][j] * prod;
+      }
+      for (let j = 0; j < seqLen; j++) {
+        let prod = 0;
+        for (let d = 0; d < dPerHead; d++) prod += dConcat[i][startD + d] * vh[j][d];
+        const dS = attnW[i][j] * (prod - sumGradAttn) / scale;
+        for (let d = 0; d < dPerHead; d++) {
+          dqH[i][d] += dS * kh[j][d];
+          dkH[j][d] += dS * qh[i][d];
+        }
+      }
+    }
+
+    // Backprop dq, dk, dv through Wq, Wk, Wv to input x
+    for (let i = 0; i < seqLen; i++) {
+      for (let c = 0; c < inputSize; c++) {
+        for (let d = 0; d < dPerHead; d++) {
+          const gIdx = startD + d;
+          gradX[c] += dqH[i][d] * wq[gIdx][c]
+                    + dkH[i][d] * wk[gIdx][c]
+                    + dvH[i][d] * wv[gIdx][c];
+        }
       }
     }
   }
@@ -1810,9 +1855,10 @@ function attnBackward(deltas, p) {
 // ============================================================
 function archInit(inputSize) {
   const arch = getArchitectureType();
+  const actName = document.getElementById("activation").value;
   archOptimStates = {};
   if (arch === "cnn") {
-    archParams = cnnInit(inputSize);
+    archParams = cnnInit(inputSize, actName);
   } else if (arch === "rnn") {
     archParams = rnnInit(inputSize);
   } else if (arch === "attention") {
@@ -2292,7 +2338,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       let correct = 0;
       for (const sample of testData) {
         const x = sample[0], y = sample[1];
-        forward(network, x, activation, false, networkType, null);
+        forward(network, archForward(x), activation, false, networkType, null);
         const outputLayer = network[numLayers - 1];
         if (networkType === "classification") {
           for (let n = 0; n < outputLayer.length; n++) {
@@ -2810,7 +2856,7 @@ function computeConfusionMatrix(net, testData, networkType, activation, numClass
 
   for (const sample of testData) {
     const x = sample[0], y = sample[1];
-    forward(net, x, activation, false, networkType, null);
+    forward(net, archForward(x), activation, false, networkType, null);
     const outputLayer = net[net.length - 1];
 
     // 预测类别
@@ -3406,7 +3452,7 @@ function showNetStructure(layerSizes, weights) {
 
 function loadExampleCommon() {
   dataBody.innerHTML = "";
-  document.getElementById("architecture").value = "dense";
+  document.getElementById("architecture").value = "mlp";
   document.getElementById("networkType").value = "regression";
   document.querySelectorAll(".arch-config").forEach(el => el.style.display = "none");
   useTestSetCb.checked = true;
@@ -3871,59 +3917,65 @@ trainBtn.addEventListener("click", async () => {
   const net = buildNetwork(layerSizes);
   const startTime = performance.now();
 
-  const results = train(net, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, (epoch, loss, testLoss, accInfo) => {
-    const pct = Math.min(100, Math.round(epoch / epochs * 100));
-    progressFill.style.width = pct + "%";
-    const lossLabel = networkType === "classification" ? "CE" : "MSE";
-    let text = `${pct}%  (Epoch ${epoch}/${epochs}, Train ${lossLabel}: ${loss.toFixed(6)}`;
-    if (testLoss !== undefined && testLoss !== null) {
-      text += `, Test ${lossLabel}: ${testLoss.toFixed(6)}`;
+  try {
+    const results = train(net, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, (epoch, loss, testLoss, accInfo) => {
+      const pct = Math.min(100, Math.round(epoch / epochs * 100));
+      progressFill.style.width = pct + "%";
+      const lossLabel = networkType === "classification" ? "CE" : "MSE";
+      let text = `${pct}%  (Epoch ${epoch}/${epochs}, Train ${lossLabel}: ${loss.toFixed(6)}`;
+      if (testLoss !== undefined && testLoss !== null) {
+        text += `, Test ${lossLabel}: ${testLoss.toFixed(6)}`;
+      }
+      text += `)${accInfo || ""}`;
+      progressText.textContent = text;
+      statusEl.textContent = `训练中... Epoch ${epoch}`;
+    });
+
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+
+    currentWeights = extractWeights(net);
+    lossHistory    = results.losses;
+    testLossHistory= results.testLosses;
+    accHistory     = results.accuracies;
+
+    statusEl.textContent = `✅ 训练完成！耗时 ${elapsed}s，Final Loss: ${results.losses[results.losses.length - 1].toFixed(10)}` +
+      (results.accuracies.length > 0 && results.accuracies[results.accuracies.length-1] !== null
+        ? `，Test Acc: ${(results.accuracies[results.accuracies.length-1]*100).toFixed(1)}%`
+        : "");
+    trainBtn.disabled = false;
+    isTraining = false;
+
+    drawLossChart(results.losses, results.testLosses, results.accuracies, networkType);
+
+    // ===== 分类任务：显示混淆矩阵 + 决策边界 =====
+    if (networkType === "classification") {
+      const numClasses = out;
+      if (testData.length > 0) {
+        const cm = computeConfusionMatrix(net, testData, networkType, activation, numClasses);
+        renderConfusionMatrix(cm.matrix, numClasses);
+        document.getElementById("confusionPanel").style.display = "block";
+      }
+
+      // 如果输入维度为 2，显示决策边界面板
+      if (n === 2) {
+        document.getElementById("decisionBoundaryPanel").style.display = "block";
+        decisionBoundaryData = { net, trainData, testData, activation, networkType, numClasses };
+        requestAnimationFrame(() => {
+          drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses);
+        });
+        document.getElementById("decisionMsg").textContent =
+          "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心圆 = 测试集。";
+      }
     }
-    text += `)${accInfo || ""}`;
-    progressText.textContent = text;
-    statusEl.textContent = `训练中... Epoch ${epoch}`;
-  });
 
-  const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-
-  currentWeights = extractWeights(net);
-  lossHistory    = results.losses;
-  testLossHistory= results.testLosses;
-  accHistory     = results.accuracies;
-
-  statusEl.textContent = `✅ 训练完成！耗时 ${elapsed}s，Final Loss: ${results.losses[results.losses.length - 1].toFixed(10)}` +
-    (results.accuracies.length > 0 && results.accuracies[results.accuracies.length-1] !== null
-      ? `，Test Acc: ${(results.accuracies[results.accuracies.length-1]*100).toFixed(1)}%`
-      : "");
-  trainBtn.disabled = false;
-  isTraining = false;
-
-  drawLossChart(results.losses, results.testLosses, results.accuracies, networkType);
-
-  // ===== 分类任务：显示混淆矩阵 + 决策边界 =====
-  if (networkType === "classification") {
-    const numClasses = out;
-    if (testData.length > 0) {
-      const cm = computeConfusionMatrix(net, testData, networkType, activation, numClasses);
-      renderConfusionMatrix(cm.matrix, numClasses);
-      document.getElementById("confusionPanel").style.display = "block";
-    }
-
-    // 如果输入维度为 2，显示决策边界面板
-    if (n === 2) {
-      document.getElementById("decisionBoundaryPanel").style.display = "block";
-      // 保存参数以便 resize 时重绘，并用 rAF 确保 DOM 布局完成后再绘制
-      decisionBoundaryData = { net, trainData, testData, activation, networkType, numClasses };
-      requestAnimationFrame(() => {
-        drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses);
-      });
-      document.getElementById("decisionMsg").textContent =
-        "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心圆 = 测试集。";
-    }
+    // 显示网络结构可视化
+    showNetStructure(layerSizes, currentWeights);
+  } catch (e) {
+    console.error("训练出错:", e);
+    statusEl.textContent = "❌ 训练出错: " + (e.message || e);
+    trainBtn.disabled = false;
+    isTraining = false;
   }
-
-  // 显示网络结构可视化
-  showNetStructure(layerSizes, currentWeights);
 });
 
 // ===== 收集全部训练数据（带 raw 值） =====
@@ -4099,6 +4151,7 @@ function restoreFromModelJSON(parsed) {
   if (cfg.networkType === "classification" && parsed.trainData) {
     const n = restoreInputSize;
     const out = restoreOutputSize;
+    const allRaw = getAllRawData();
     if (allRaw.length > 0 && useTestSetCb.checked) {
       const split = splitTrainTest(allRaw, parseFloat(document.getElementById("testRatio").value) || 0.2);
       if (split.testSet.length > 0) {
