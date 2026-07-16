@@ -1417,11 +1417,11 @@ function softmax(arr) {
 
 // ===== 工具：He 初始化 =====
 function heInit(fanIn) {
-  const std = Math.sqrt(2.0 / fanIn);
+  const std = Math.sqrt(6.0 / fanIn);
   return (rng() * 2 - 1) * std;
 }
 function xavierInit(fanIn, fanOut) {
-  const std = Math.sqrt(2.0 / (fanIn + fanOut));
+  const std = Math.sqrt(6.0 / (fanIn + fanOut));
   return (rng() * 2 - 1) * std;
 }
 
@@ -2024,7 +2024,7 @@ function buildNetwork(layerSizes) {
 }
 
 // ===== 前向传播 =====
-function forward(net, inputs, activation, isTraining, networkType, dropoutMask) {
+function forward(net, inputs, activation, isTraining, networkType, dropoutMask, dropoutRate = 0) {
   let current = inputs.slice();
   for (let l = 0; l < net.length; l++) {
     const layer = net[l];
@@ -2050,8 +2050,12 @@ function forward(net, inputs, activation, isTraining, networkType, dropoutMask) 
         }
       } else {
         node.a = ACT[activation].fn(node.z);
-        if (isTraining && dropoutMask && dropoutMask[l] && dropoutMask[l][n] === 0) {
-          node.a = 0;
+        if (isTraining && dropoutMask && dropoutMask[l]) {
+          if (dropoutMask[l][n] === 0) {
+            node.a = 0;
+          } else {
+            node.a /= (1 - dropoutRate);
+          }
         }
       }
       next.push(node.a);
@@ -2140,7 +2144,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           dropoutMask = generateDropoutMask(network.map(l => l.length), dropoutRate);
         }
 
-        forward(network, archForward(x), activation, true, networkType, dropoutMask);
+        forward(network, archForward(x), activation, true, networkType, dropoutMask, dropoutRate);
 
         let loss = 0;
         const outputLayer = network[numLayers - 1];
@@ -2187,10 +2191,8 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
 
             for (let i = 0; i < node.weights.length; i++) {
               const wKey = `${l},${n},${i}`;
-              let grad = d * prevLayer[i].a;
-              if (useL2) grad += l2Lambda * node.weights[i];
               if (!gradW[wKey]) gradW[wKey] = 0;
-              gradW[wKey] += grad;
+              gradW[wKey] += d * prevLayer[i].a;
             }
 
             for (let i = 0; i < prevLayer.length; i++) {
@@ -2225,7 +2227,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
         }
         for (const key in gradW) {
           const [l, n, i] = key.split(",").map(Number);
-          const g = gradW[key] / bSize;
+          const g = gradW[key] / bSize + (useL2 ? l2Lambda * network[l][n].weights[i] : 0);
           if (!mW[key]) { mW[key] = 0; vW[key] = 0; }
           mW[key] = beta1 * mW[key] + (1 - beta1) * g;
           vW[key] = beta2 * vW[key] + (1 - beta2) * g * g;
@@ -2241,7 +2243,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
         }
         for (const key in gradW) {
           const [l, n, i] = key.split(",").map(Number);
-          const g = gradW[key] / bSize;
+          const g = gradW[key] / bSize + (useL2 ? l2Lambda * network[l][n].weights[i] : 0);
           if (!vW_mom[key]) vW_mom[key] = 0;
           vW_mom[key] = momentum * vW_mom[key] - lr * g;
           network[l][n].weights[i] += vW_mom[key];
@@ -2256,7 +2258,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
         }
         for (const key in gradW) {
           const [l, n, i] = key.split(",").map(Number);
-          const g = gradW[key] / bSize;
+          const g = gradW[key] / bSize + (useL2 ? l2Lambda * network[l][n].weights[i] : 0);
           if (!rmsW[key]) rmsW[key] = 0;
           rmsW[key] = rho * rmsW[key] + (1 - rho) * g * g;
           network[l][n].weights[i] -= lr * g / (Math.sqrt(rmsW[key]) + eps);
@@ -2269,7 +2271,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
         }
         for (const key in gradW) {
           const [l, n, i] = key.split(",").map(Number);
-          const g = gradW[key] / bSize;
+          const g = gradW[key] / bSize + (useL2 ? l2Lambda * network[l][n].weights[i] : 0);
           network[l][n].weights[i] -= lr * g;
         }
       }
