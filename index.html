@@ -1863,13 +1863,35 @@ function renderConfusionMatrix(matrix, numClasses) {
 const decisionCanvas = document.getElementById("decisionCanvas");
 const ctxDecision = decisionCanvas.getContext("2d");
 
+// 保存当前决策边界的参数，用于 resize 后重绘
+let decisionBoundaryData = null;
+
 function resizeDecisionCanvas() {
   const width = decisionCanvas.offsetWidth;
   if (width <= 0) return;
   decisionCanvas.width = width;
   decisionCanvas.height = Math.max(400, width * 0.75);
 }
-window.addEventListener("resize", () => { resizeDecisionCanvas(); });
+
+// 窗口 resize 后需要重绘决策边界
+window.addEventListener("resize", () => {
+  resizeDecisionCanvas();
+  if (decisionBoundaryData) {
+    const d = decisionBoundaryData;
+    drawDecisionBoundary(d.net, d.trainData, d.testData, d.activation, d.networkType, d.numClasses);
+  }
+});
+
+// 手机端 visualViewport 变化时也重绘（地址栏收起/弹出、软键盘等）
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    resizeDecisionCanvas();
+    if (decisionBoundaryData) {
+      const d = decisionBoundaryData;
+      drawDecisionBoundary(d.net, d.trainData, d.testData, d.activation, d.networkType, d.numClasses);
+    }
+  });
+}
 
 // 为分类任务生成颜色
 function getClassColor(classIdx, alpha) {
@@ -2280,6 +2302,7 @@ trainBtn.addEventListener("click", async () => {
   // 隐藏旧的结果面板
   document.getElementById("confusionPanel").style.display = "none";
   document.getElementById("decisionBoundaryPanel").style.display = "none";
+  decisionBoundaryData = null;
   resizeDecisionCanvas();
   ctxDecision.clearRect(0, 0, decisionCanvas.width, decisionCanvas.height);
   document.getElementById("decisionMsg").textContent =
@@ -2385,7 +2408,11 @@ trainBtn.addEventListener("click", async () => {
     // 如果输入维度为 2，显示决策边界面板
     if (n === 2) {
       document.getElementById("decisionBoundaryPanel").style.display = "block";
-      drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses);
+      // 保存参数以便 resize 时重绘，并用 rAF 确保 DOM 布局完成后再绘制
+      decisionBoundaryData = { net, trainData, testData, activation, networkType, numClasses };
+      requestAnimationFrame(() => {
+        drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses);
+      });
       document.getElementById("decisionMsg").textContent =
         "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心圆 = 测试集。";
     }
@@ -2514,7 +2541,10 @@ function restoreFromModelJSON(parsed) {
       }
       if (n === 2) {
         document.getElementById("decisionBoundaryPanel").style.display = "block";
-        drawDecisionBoundary(net, split.trainSet, split.testSet, cfg.activation, cfg.networkType, out);
+        decisionBoundaryData = { net, trainData: split.trainSet, testData: split.testSet, activation: cfg.activation, networkType: cfg.networkType, numClasses: out };
+        requestAnimationFrame(() => {
+          drawDecisionBoundary(net, split.trainSet, split.testSet, cfg.activation, cfg.networkType, out);
+        });
       }
     }
   }
