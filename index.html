@@ -83,6 +83,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   body { padding: 16px 10px; }
   h1 { font-size: 20px; }
   .subtitle { font-size: 12px; }
+  .layout { row-gap: 10px; }
   .panel, .data-edit-panel, .chart-panel, .confusion-panel, .decision-boundary-panel, .infer-panel {
     padding: 16px;
     border-radius: 12px;
@@ -123,7 +124,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 @media (max-width: 480px) {
   body { padding: 12px 8px; }
   h1 { font-size: 18px; }
-  .layout { gap: 14px; }
+  .layout { row-gap: 8px; }
   .panel, .data-edit-panel, .chart-panel, .confusion-panel, .decision-boundary-panel, .infer-panel {
     padding: 14px;
   }
@@ -131,6 +132,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   .btn-row .btn { width: 100%; }
   .data-edit-actions { flex-direction: column; }
   .example-grid { grid-template-columns: 1fr; gap: 8px; }
+  .right-col .data-edit-panel { margin-bottom: 10px; }
   .data-edit-scroll { max-height: 240px; }
   .data-table th, .data-table td { padding: 7px 4px; font-size: 12px; }
   .data-table input { font-size: 12px; min-width: 44px; }
