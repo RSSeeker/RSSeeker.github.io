@@ -577,6 +577,61 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   margin-top: 6px;
 }
 
+/* ===== 网络结构可视化 ===== */
+.net-struct-panel {
+  grid-column: 1 / -1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+  position: relative;
+  overflow: hidden;
+}
+.net-struct-panel h3 { font-size:14px; color:#aaa; margin-bottom:4px; }
+.net-struct-hint {
+  font-size: 11px;
+  color: #555;
+  margin-bottom: 10px;
+}
+#netStructCanvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.25);
+  cursor: grab;
+  touch-action: none;
+}
+#netStructCanvas:active { cursor: grabbing; }
+.net-struct-tooltip {
+  position: absolute;
+  pointer-events: none;
+  font-size: 11px;
+  background: rgba(20,20,30,0.94);
+  color: #e5e5e5;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(88,166,255,0.3);
+  white-space: nowrap;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.12s;
+  line-height: 1.5;
+}
+.light .net-struct-panel {
+  background: rgba(255,255,255,0.8);
+  border-color: rgba(0,0,0,0.06);
+}
+.light .net-struct-panel h3 { color: #666; }
+.light .net-struct-hint { color: #999; }
+.light #netStructCanvas { background: rgba(0,0,0,0.03); }
+.light .net-struct-tooltip {
+  background: rgba(255,255,255,0.96);
+  color: #333;
+  border-color: rgba(0,0,0,0.18);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
 /* ===== 苹果风格开关 ===== */
 .toggle-row {
   display: flex;
@@ -1035,6 +1090,14 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
     </div>
   </div>
 
+  <!-- 网络结构可视化 -->
+  <div class="net-struct-panel" id="netStructPanel" style="display:none;">
+    <h3>🔗 网络结构可视化 (Network Architecture)</h3>
+    <div class="net-struct-hint">🖱 滚轮缩放 · 拖拽平移 · 悬停神经元查看参数</div>
+    <div class="net-struct-tooltip" id="netStructTooltip"></div>
+    <canvas id="netStructCanvas"></canvas>
+  </div>
+
   <div class="infer-panel">
     <h3>🔮 推理面板</h3>
     <table class="infer-table" id="inferTable">
@@ -1113,6 +1176,8 @@ function onThemeChange() {
   if (placeholder) {
     placeholder.style.background = isLightTheme() ? "rgba(245,245,247,0.85)" : "rgba(14,14,17,0.75)";
   }
+  // 重绘网络结构画布（连线颜色跟随主题切换）
+  if (nsData) drawNetStructure();
 }
 
 // ===== 可随机种子 PRNG (Mulberry32) =====
@@ -1557,23 +1622,54 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
 }
 
 // ===== 提取权重 =====
+// 格式：weights[srcIdx][destNeuronIdx] = { weights:[w0,w1,...], bias }
+// srcIdx 是源层索引，destNeuronIdx 是目标层（srcIdx+1）的神经元索引
 function extractWeights(net) {
-  return net.map(layer =>
-    layer.map(node => ({
+  const result = [];
+  for (let l = 0; l < net.length - 1; l++) {
+    // 目标层 = net[l+1]，每个目标神经元存来自源层 net[l] 的入边权重
+    result.push(net[l + 1].map(node => ({
       weights: node.weights.slice(),
       bias: node.bias
-    }))
-  );
+    })));
+  }
+  return result;
 }
 
 // ===== 恢复权重 =====
 function applyWeights(net, weights) {
   for (let l = 0; l < weights.length; l++) {
+    const destLayer = net[l + 1];  // 目标层
     for (let n = 0; n < weights[l].length; n++) {
-      net[l][n].weights = weights[l][n].weights.slice();
-      net[l][n].bias = weights[l][n].bias;
+      destLayer[n].weights = weights[l][n].weights.slice();
+      destLayer[n].bias = weights[l][n].bias;
     }
   }
+}
+
+// ===== v4→v5 权重格式迁移 =====
+// 旧格式(按源层): weights[l][srcN] = { weights:[去往目标层的出边], bias:源神经元偏置 }
+// 新格式(按目标层): weights[l][dstN] = { weights:[来自源层的入边], bias:目标神经元偏置 }
+function convertWeightsV4toV5(oldWeights, layerSizes) {
+  const newWeights = [];
+  for (let l = 0; l < layerSizes.length - 1; l++) {
+    const srcSize = layerSizes[l];
+    const dstSize = layerSizes[l + 1];
+    const wLayer = [];
+    for (let dstN = 0; dstN < dstSize; dstN++) {
+      const incoming = [];
+      for (let srcN = 0; srcN < srcSize; srcN++) {
+        const srcNode = (oldWeights[l] && oldWeights[l][srcN]) || null;
+        incoming.push(srcNode && srcNode.weights ? (srcNode.weights[dstN] || 0) : 0);
+      }
+      // 旧格式中目标神经元的偏置存在于 oldWeights[l+1][dstN].bias
+      const dstNode = (oldWeights[l + 1] && oldWeights[l + 1][dstN]) || null;
+      const bias = dstNode ? (dstNode.bias || 0) : 0;
+      wLayer.push({ weights: incoming, bias });
+    }
+    newWeights.push(wLayer);
+  }
+  return newWeights;
 }
 
 // ============================================================
@@ -2272,6 +2368,296 @@ function drawDecisionBoundary(net, trainData, testData, activation, networkType,
   ctxDecision.fillText("测试集", legendX + 18, legendBase + 26);
 }
 
+// ============================================================
+//  网络结构可视化
+// ============================================================
+
+const netStructCanvas = document.getElementById("netStructCanvas");
+const nsCtx = netStructCanvas.getContext("2d");
+const nsTooltip = document.getElementById("netStructTooltip");
+let nsData = null;
+let nsView = { ox: 0, oy: 0, scale: 1 };
+let nsDragging = false;
+let nsDragStart = { x: 0, y: 0, ox: 0, oy: 0 };
+
+function resizeNetStructCanvas() {
+  const w = netStructCanvas.offsetWidth;
+  netStructCanvas.width = w;
+  // 高度根据最大神经元数动态调整
+  if (nsData) {
+    const maxN = Math.max(...nsData.layerSizes);
+    netStructCanvas.height = Math.max(280, Math.min(700, maxN * 48 + 120));
+  } else {
+    netStructCanvas.height = 420;
+  }
+}
+
+function drawNetStructure() {
+  const W = netStructCanvas.width, H = netStructCanvas.height;
+  if (W <= 0 || H <= 0 || !nsData) return;
+  const { layerSizes, weights } = nsData;
+  const L = layerSizes.length;
+  const maxNeurons = Math.max(...layerSizes);
+  const light = isLightTheme();
+
+  nsCtx.clearRect(0, 0, W, H);
+
+  // ===== 动态布局 =====
+  const neuronR = Math.min(20, Math.max(9, (H - 80) / (maxNeurons * 2.1)));
+  const vertGap = (H - 80) / Math.max(maxNeurons, 1);  // 统一纵向间距
+  const totalWidth = W * 1.0;  // 层间可用宽度
+  const layerSpacing = Math.min(180, totalWidth / Math.max(L, 2));
+  // 居中偏移
+  const centerX = W / 2 - ((L - 1) * layerSpacing) / 2;
+  const layerX = (l) => centerX + l * layerSpacing;
+  // 每层神经元纵向居中
+  const neuronY = (n, count) => {
+    const firstY = (H - 80) / 2 - vertGap * (count - 1) / 2 + 40;
+    return firstY + n * vertGap;
+  };
+
+  nsCtx.save();
+  const cx = W / 2, cy = H / 2;
+  nsCtx.translate(cx, cy);
+  nsCtx.scale(nsView.scale, nsView.scale);
+  nsCtx.translate(-cx + nsView.ox, -cy + nsView.oy);
+
+  // 计算神经元坐标
+  const neuronPos = [];
+  for (let l = 0; l < L; l++) {
+    const cols = [];
+    for (let n = 0; n < layerSizes[l]; n++) {
+      cols.push({ x: layerX(l), y: neuronY(n, layerSizes[l]) });
+    }
+    neuronPos.push(cols);
+  }
+
+  // 构建连线数据
+  const connData = [];
+  for (let l = 1; l < L; l++) {
+    for (let ni = 0; ni < layerSizes[l - 1]; ni++) {
+      for (let nj = 0; nj < layerSizes[l]; nj++) {
+        const w = weights[l - 1] && weights[l - 1][nj] ? weights[l - 1][nj].weights[ni] : 0;
+        connData.push({
+          fromL: l - 1, fromN: ni,
+          toL: l, toN: nj, weight: w,
+          x1: neuronPos[l - 1][ni].x, y1: neuronPos[l - 1][ni].y,
+          x2: neuronPos[l][nj].x,    y2: neuronPos[l][nj].y
+        });
+      }
+    }
+  }
+
+  // 绘制连线 — 兼容亮暗色模式
+  const maxAbsW = Math.max(0.001, ...connData.map(c => Math.abs(c.weight)));
+  const minLW = 0.4, maxLW = 4.5;
+  for (const c of connData) {
+    const absW = Math.abs(c.weight);
+    const alpha = light
+      ? 0.22 + (absW / maxAbsW) * 0.50   // 亮色：蓝/红
+      : 0.35 + (absW / maxAbsW) * 0.45;  // 暗色：白色，提高最低可见度
+    if (light) {
+      // 亮色模式：黑色，通过透明度体现权重强弱
+      nsCtx.strokeStyle = `rgba(0,0,0,${alpha.toFixed(2)})`;
+    } else {
+      // 暗色模式：白色，通过透明度体现权重强弱
+      nsCtx.strokeStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+    }
+    nsCtx.lineWidth = minLW + (absW / maxAbsW) * (maxLW - minLW);
+    nsCtx.beginPath();
+    nsCtx.moveTo(c.x1, c.y1);
+    nsCtx.lineTo(c.x2, c.y2);
+    nsCtx.stroke();
+  }
+
+  // 绘制神经元
+  for (let l = 0; l < L; l++) {
+    for (let n = 0; n < layerSizes[l]; n++) {
+      const p = neuronPos[l][n];
+      let fillClr, borderClr;
+      if (l === 0) {
+        fillClr = "rgba(88,166,255,0.8)"; borderClr = "rgba(88,166,255,1)";
+      } else if (l === L - 1) {
+        fillClr = "rgba(255,159,67,0.8)"; borderClr = "rgba(255,159,67,1)";
+      } else {
+        fillClr = "rgba(167,139,250,0.75)"; borderClr = "rgba(167,139,250,1)";
+      }
+      nsCtx.beginPath();
+      nsCtx.arc(p.x, p.y, neuronR, 0, Math.PI * 2);
+      nsCtx.fillStyle = fillClr;
+      nsCtx.fill();
+      nsCtx.strokeStyle = borderClr;
+      nsCtx.lineWidth = 1.8;
+      nsCtx.stroke();
+
+      // bias 内圈
+      if (l > 0 && weights[l - 1] && weights[l - 1][n]) {
+        const bv = weights[l - 1][n].bias;
+        const ba = 0.25 + Math.min(0.55, Math.abs(bv) * 0.8);
+        nsCtx.beginPath();
+        nsCtx.arc(p.x, p.y, neuronR * 0.45, 0, Math.PI * 2);
+        nsCtx.fillStyle = bv >= 0
+          ? `rgba(88,200,120,${ba.toFixed(2)})`
+          : `rgba(255,100,100,${ba.toFixed(2)})`;
+        nsCtx.fill();
+      }
+    }
+  }
+
+  // 层标签
+  nsCtx.fillStyle = light ? "#777" : "#888";
+  nsCtx.font = "11px 'Segoe UI','PingFang SC',sans-serif";
+  nsCtx.textAlign = "center";
+  for (let l = 0; l < L; l++) {
+    const x = layerX(l);
+    const count = layerSizes[l];
+    const labelY = neuronY(0, count) - neuronR * 2.8;
+    let label;
+    if (l === 0) label = "输入层";
+    else if (l === L - 1) label = "输出层";
+    else label = "隐藏层 " + l;
+    nsCtx.fillText(label, x, labelY);
+    nsCtx.fillText(layerSizes[l] + "", x, labelY + 14);
+  }
+  nsCtx.textAlign = "start";
+  nsCtx.restore();
+
+  nsData.neuronPos = neuronPos;
+  nsData.connData = connData;
+}
+
+// 屏幕→世界坐标
+function nsScrToWorld(sx, sy) {
+  const W = netStructCanvas.width, H = netStructCanvas.height;
+  const cx = W / 2, cy = H / 2;
+  return {
+    x: (sx - cx) / nsView.scale + cx - nsView.ox,
+    y: (sy - cy) / nsView.scale + cy - nsView.oy
+  };
+}
+
+// 滚轮缩放
+netStructCanvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (!nsData) return;
+  nsView.scale = Math.max(0.2, Math.min(5, nsView.scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+  drawNetStructure();
+  nsTooltip.style.opacity = "0";
+}, { passive: false });
+
+// 拖拽平移
+netStructCanvas.addEventListener("mousedown", (e) => {
+  nsDragging = true;
+  nsDragStart = { x: e.offsetX, y: e.offsetY, ox: nsView.ox, oy: nsView.oy };
+  netStructCanvas.style.cursor = "grabbing";
+});
+
+netStructCanvas.addEventListener("mousemove", (e) => {
+  const mx = e.offsetX, my = e.offsetY;
+  if (nsDragging) {
+    nsView.ox = nsDragStart.ox + (mx - nsDragStart.x);
+    nsView.oy = nsDragStart.oy + (my - nsDragStart.y);
+    drawNetStructure();
+    nsTooltip.style.opacity = "0";
+    return;
+  }
+  if (!nsData || !nsData.neuronPos) return;
+  const w = nsScrToWorld(mx, my);
+
+  // 仅检测神经元悬停（不在连线上显示）
+  let bestN = null, bestNd = 22;
+  for (let l = 0; l < nsData.layerSizes.length; l++) {
+    for (let n = 0; n < nsData.layerSizes[l]; n++) {
+      const p = nsData.neuronPos[l][n];
+      const d = Math.hypot(w.x - p.x, w.y - p.y);
+      if (d < bestNd) { bestNd = d; bestN = { l, n }; }
+    }
+  }
+  if (bestN && bestN.l > 0 && bestN.l - 1 < nsData.weights.length) {
+    const isOut = bestN.l === nsData.layerSizes.length - 1;
+    const isHid = !isOut;
+    // 如果该神经元数据不存在则使用默认值
+    const nd = nsData.weights[bestN.l - 1] && nsData.weights[bestN.l - 1][bestN.n]
+      ? nsData.weights[bestN.l - 1][bestN.n] : { bias: 0, weights: [] };
+    let html = `<b>${isHid ? "隐藏" : "输出"}层</b> 神经元 #${bestN.n}`;
+    html += `<br>偏置 b: ${nd.bias >= 0 ? "+" : ""}${(nd.bias ?? 0).toFixed(6)}`;
+    html += `<br>入边权重: `;
+    if (nd.weights.length === 0) {
+      html += "(无)";
+    } else {
+      const shown = nd.weights.slice(0, 8);
+      shown.forEach((wv, i) => {
+        html += `${wv >= 0 ? "+" : ""}${(wv ?? 0).toFixed(4)}${i < shown.length - 1 ? ", " : ""}`;
+      });
+      if (nd.weights.length > 8) html += `... (共${nd.weights.length}个)`;
+    }
+    nsTooltip.innerHTML = html;
+    const rect = netStructCanvas.getBoundingClientRect();
+    let left = rect.left + mx + 16;
+    let top = rect.top + my - 10;
+    // 先设置位置，测量后调整避免超出屏幕
+    nsTooltip.style.left = left + "px";
+    nsTooltip.style.top = top + "px";
+    nsTooltip.style.opacity = "1";
+    const tr = nsTooltip.getBoundingClientRect();
+    if (tr.right > window.innerWidth - 8) {
+      // 右侧溢出，翻转到鼠标左侧
+      left = rect.left + mx - tr.width - 16;
+    }
+    if (left < 8) {
+      // 左侧溢出，贴边
+      left = 8;
+    }
+    if (tr.bottom > window.innerHeight - 8) {
+      // 底部溢出，向上调整
+      top = rect.top + my - tr.height - 10;
+    }
+    if (top < 8) {
+      // 顶部溢出，贴边
+      top = 8;
+    }
+    nsTooltip.style.left = left + "px";
+    nsTooltip.style.top = top + "px";
+  } else {
+    nsTooltip.style.opacity = "0";
+  }
+});
+
+netStructCanvas.addEventListener("mouseup", () => {
+  nsDragging = false;
+  netStructCanvas.style.cursor = "grab";
+});
+netStructCanvas.addEventListener("mouseleave", () => {
+  nsDragging = false;
+  nsTooltip.style.opacity = "0";
+  netStructCanvas.style.cursor = "grab";
+});
+
+// 触摸支持
+netStructCanvas.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 1) {
+    nsDragging = true;
+    nsDragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: nsView.ox, oy: nsView.oy };
+  }
+}, { passive: false });
+netStructCanvas.addEventListener("touchmove", (e) => {
+  if (nsDragging && e.touches.length === 1) {
+    e.preventDefault();
+    nsView.ox = nsDragStart.ox + (e.touches[0].clientX - nsDragStart.x);
+    nsView.oy = nsDragStart.oy + (e.touches[0].clientY - nsDragStart.y);
+    drawNetStructure();
+  }
+}, { passive: false });
+netStructCanvas.addEventListener("touchend", () => { nsDragging = false; });
+
+// 外部调用：训练完成后显示网络结构
+function showNetStructure(layerSizes, weights) {
+  nsData = { layerSizes: [...layerSizes], weights: JSON.parse(JSON.stringify(weights)) };
+  nsView = { ox: 0, oy: 0, scale: 1 };
+  document.getElementById("netStructPanel").style.display = "block";
+  resizeNetStructCanvas();
+  drawNetStructure();
+}
 
 // ============================================================
 //  预设示例
@@ -2537,6 +2923,8 @@ trainBtn.addEventListener("click", async () => {
   // 隐藏旧的结果面板
   document.getElementById("confusionPanel").style.display = "none";
   document.getElementById("decisionBoundaryPanel").style.display = "none";
+  document.getElementById("netStructPanel").style.display = "none";
+  nsData = null;
   decisionBoundaryData = null;
   resizeDecisionCanvas();
   ctxDecision.clearRect(0, 0, decisionCanvas.width, decisionCanvas.height);
@@ -2652,6 +3040,9 @@ trainBtn.addEventListener("click", async () => {
         "✅ 决策边界已自动绘制。背景色 = 模型预测类别，实心圆 = 训练集，空心圆 = 测试集。";
     }
   }
+
+  // 显示网络结构可视化
+  showNetStructure(layerSizes, currentWeights);
 });
 
 // ===== 收集全部训练数据（带 raw 值） =====
@@ -2683,7 +3074,7 @@ function buildModelJSON() {
   const seedEl = document.getElementById("randomSeed");
   const seedVal = seedEl && seedEl.value !== "" && seedEl.value !== null ? parseInt(seedEl.value, 10) : undefined;
   return {
-    version: 4,
+    version: 5,
     savedAt: new Date().toISOString(),
     config: {
       layerSizes: getLayerSizes(),
@@ -2749,6 +3140,12 @@ function restoreFromModelJSON(parsed) {
 
   const layerSizes = cfg.layerSizes;
   const net = buildNetwork(layerSizes);
+
+  // v4→v5 权重格式迁移：旧格式按源层索引 → 新格式按目标层索引
+  if (!parsed.version || parsed.version < 5) {
+    parsed.weights = convertWeightsV4toV5(parsed.weights, layerSizes);
+  }
+
   applyWeights(net, parsed.weights);
   currentWeights = extractWeights(net);
 
@@ -2798,6 +3195,9 @@ function restoreFromModelJSON(parsed) {
       }
     }
   }
+
+  // 显示网络结构可视化
+  showNetStructure(layerSizes, parsed.weights);
 
   syncInputSize();
   rebuildInferInputs();
