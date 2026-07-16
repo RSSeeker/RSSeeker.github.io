@@ -521,38 +521,6 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   padding: 6px 14px;
   font-size: 12px;
 }
-.decision-resolution-label {
-  font-size: 12px;
-  color: #999;
-}
-.decision-resolution-label select {
-  margin-left: 6px;
-  padding: 4px 24px 4px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;
-  color: #fff;
-  font-size: 12px;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-}
-.decision-resolution-label select:focus {
-  outline: none;
-  border-color: #58a6ff;
-}
-.decision-resolution-label select option {
-  background: #1a1a20;
-  color: #e5e5e5;
-  border: none;
-  outline: none;
-}
-.decision-resolution-label select option:hover,
-.decision-resolution-label select option:checked,
-.decision-resolution-label select option:focus {
-  background: #58a6ff;
-  color: #fff;
-}
 .decision-msg {
   font-size: 12px;
   color: #666;
@@ -862,14 +830,6 @@ h1 { font-size: 24px; margin-bottom: 4px; }
     <div class="decision-controls">
       <button class="btn" id="drawBoundaryBtn">🖌️ 绘制决策边界</button>
       <button class="btn" id="clearBoundaryBtn">🗑️ 清除</button>
-      <span class="decision-resolution-label">
-        分辨率
-        <select id="boundaryResolution">
-          <option value="80">低 (80×80)</option>
-          <option value="150" selected>中 (150×150)</option>
-          <option value="250">高 (250×250)</option>
-        </select>
-      </span>
     </div>
     <div class="decision-msg" id="decisionMsg">
       仅适用于输入维度为 2 的分类任务。请先训练网络，然后点击「绘制决策边界」。
@@ -1810,11 +1770,12 @@ const decisionCanvas = document.getElementById("decisionCanvas");
 const ctxDecision = decisionCanvas.getContext("2d");
 
 function resizeDecisionCanvas() {
-  decisionCanvas.width = decisionCanvas.offsetWidth;
-  decisionCanvas.height = Math.max(400, decisionCanvas.offsetWidth * 0.75);
+  const width = decisionCanvas.offsetWidth;
+  if (width <= 0) return;
+  decisionCanvas.width = width;
+  decisionCanvas.height = Math.max(400, width * 0.75);
 }
 window.addEventListener("resize", () => { resizeDecisionCanvas(); });
-resizeDecisionCanvas();
 
 // 为分类任务生成颜色
 function getClassColor(classIdx, alpha) {
@@ -1832,68 +1793,61 @@ function getClassColor(classIdx, alpha) {
 }
 
 function drawDecisionBoundary(net, trainData, testData, activation, networkType, numClasses) {
+  resizeDecisionCanvas();
   const W = decisionCanvas.width;
   const H = decisionCanvas.height;
-  const resolution = parseInt(document.getElementById("boundaryResolution").value) || 150;
+  if (W <= 0 || H <= 0) return;
+  const minCellSize = 4;
+  const maxCells = 220;
+  const resolutionX = Math.min(maxCells, Math.max(80, Math.ceil(W / minCellSize)));
+  const resolutionY = Math.min(maxCells, Math.max(80, Math.ceil(H / minCellSize)));
 
   // 计算数据范围（含测试集）
-  let allX = [];
+  const xCoords = [];
+  const yCoords = [];
   if (trainData) {
-    trainData.forEach(d => { if (d[0] && d[0].length >= 2) { allX.push(d[0][0], d[0][1]); } });
+    trainData.forEach(d => { if (d[0] && d[0].length >= 2) { xCoords.push(d[0][0]); yCoords.push(d[0][1]); } });
   }
   if (testData) {
-    testData.forEach(d => { if (d[0] && d[0].length >= 2) { allX.push(d[0][0], d[0][1]); } });
+    testData.forEach(d => { if (d[0] && d[0].length >= 2) { xCoords.push(d[0][0]); yCoords.push(d[0][1]); } });
   }
-  if (allX.length === 0) return;
+  if (xCoords.length === 0 || yCoords.length === 0) return;
 
-  const xMin = Math.min(...allX), xMax = Math.max(...allX);
-  const yMin = Math.min(...allX), yMax = Math.max(...allX);
-  const margin = (xMax - xMin) * 0.15 || 1;
+  const xMin = Math.min(...xCoords);
+  const xMax = Math.max(...xCoords);
+  const yMin = Math.min(...yCoords);
+  const yMax = Math.max(...yCoords);
+  const marginX = (xMax - xMin) * 0.15 || 1;
+  const marginY = (yMax - yMin) * 0.15 || 1;
 
-  // 为每个像素做预测
-  const imageData = ctxDecision.createImageData(W, H);
+  const stepX = W / resolutionX;
+  const stepY = H / resolutionY;
 
-  for (let py = 0; py < H; py++) {
-    for (let px = 0; px < W; px++) {
-      const x = xMin - margin + (px / W) * (xMax - xMin + 2 * margin);
-      const y = yMin - margin + ((H - py) / H) * (yMax - yMin + 2 * margin);
+  ctxDecision.clearRect(0, 0, W, H);
+
+  for (let ry = 0; ry < resolutionY; ry++) {
+    for (let rx = 0; rx < resolutionX; rx++) {
+      const x = xMin - marginX + (rx / (resolutionX - 1)) * (xMax - xMin + 2 * marginX);
+      const y = yMin - marginY + ((resolutionY - 1 - ry) / (resolutionY - 1)) * (yMax - yMin + 2 * marginY);
 
       forward(net, [x, y], activation, false, networkType, null);
       const outputLayer = net[net.length - 1];
 
-      // 找到概率最高的类别
-      let bestClass = 0, maxP = outputLayer[0].a;
+      let bestClass = 0;
+      let maxP = outputLayer[0].a;
       for (let n = 1; n < outputLayer.length; n++) {
         if (outputLayer[n].a > maxP) { maxP = outputLayer[n].a; bestClass = n; }
       }
 
-      const idx = (py * W + px) * 4;
-      // 从颜色字符串中解析
-      const colorStr = getClassColor(bestClass, 0.35);
-      // 简单映射
-      const colors = [
-        [255, 59, 48],
-        [52, 199, 89],
-        [0, 122, 255],
-        [255, 149, 0],
-        [175, 82, 222],
-        [90, 200, 250],
-        [255, 214, 10],
-        [255, 55, 95],
-      ];
-      const c = colors[bestClass % colors.length];
-      imageData.data[idx] = c[0];
-      imageData.data[idx + 1] = c[1];
-      imageData.data[idx + 2] = c[2];
-      imageData.data[idx + 3] = 90; // alpha ~0.35 * 255
+      ctxDecision.fillStyle = getClassColor(bestClass, 0.22);
+      ctxDecision.fillRect(Math.round(rx * stepX), Math.round(ry * stepY), Math.ceil(stepX), Math.ceil(stepY));
     }
   }
-  ctxDecision.putImageData(imageData, 0, 0);
 
   // 绘制训练数据点
   const drawPoint = (x, y, classIdx, isTest) => {
-    const px = ((x - (xMin - margin)) / (xMax - xMin + 2 * margin)) * W;
-    const py = H - ((y - (yMin - margin)) / (yMax - yMin + 2 * margin)) * H;
+    const px = ((x - (xMin - marginX)) / (xMax - xMin + 2 * marginX)) * W;
+    const py = H - ((y - (yMin - marginY)) / (yMax - yMin + 2 * marginY)) * H;
     ctxDecision.beginPath();
     ctxDecision.arc(px, py, isTest ? 5 : 6, 0, Math.PI * 2);
     ctxDecision.fillStyle = getClassColor(classIdx, 1.0);
@@ -2009,6 +1963,7 @@ document.getElementById("drawBoundaryBtn").addEventListener("click", () => {
   const net = buildNetwork(layerSizes);
   applyWeights(net, currentWeights);
 
+  resizeDecisionCanvas();
   // 使用全部数据（含测试集）绘制
   drawDecisionBoundary(net, allData, null, activation, networkType, numClasses);
   document.getElementById("decisionMsg").textContent =
@@ -2017,6 +1972,7 @@ document.getElementById("drawBoundaryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("clearBoundaryBtn").addEventListener("click", () => {
+  resizeDecisionCanvas();
   const W = decisionCanvas.width;
   const H = decisionCanvas.height;
   ctxDecision.clearRect(0, 0, W, H);
