@@ -355,9 +355,12 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 .right-col .data-edit-panel {
   flex-shrink: 0;
+  min-width: 0;
 }
 .right-col #examplePanel {
   margin-top: 20px;
@@ -374,11 +377,14 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   flex-direction: column;
   min-height: 300px;
   max-height: 128vh;
+  min-width: 0;
+  overflow: hidden;
 }
 .data-edit-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
 .data-edit-scroll {
   flex: 1;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
   min-height: 200px;
   max-height: calc(128vh - 280px);
 }
