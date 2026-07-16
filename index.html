@@ -1093,7 +1093,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
   <!-- 网络结构可视化 -->
   <div class="net-struct-panel" id="netStructPanel" style="display:none;">
     <h3>🔗 网络结构可视化 (Network Architecture)</h3>
-    <div class="net-struct-hint">🖱 滚轮缩放 · 拖拽平移 · 悬停神经元查看参数</div>
+    <div class="net-struct-hint">🖱 拖拽平移 · 悬停神经元查看参数</div>
     <div class="net-struct-tooltip" id="netStructTooltip"></div>
     <canvas id="netStructCanvas"></canvas>
   </div>
@@ -2536,15 +2536,6 @@ function nsScrToWorld(sx, sy) {
   };
 }
 
-// 滚轮缩放
-netStructCanvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  if (!nsData) return;
-  nsView.scale = Math.max(0.2, Math.min(5, nsView.scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-  drawNetStructure();
-  nsTooltip.style.opacity = "0";
-}, { passive: false });
-
 // 拖拽平移
 netStructCanvas.addEventListener("mousedown", (e) => {
   nsDragging = true;
@@ -2633,13 +2624,14 @@ netStructCanvas.addEventListener("mouseleave", () => {
   netStructCanvas.style.cursor = "grab";
 });
 
-// 触摸支持
+// 触摸支持（仅拖拽）
 netStructCanvas.addEventListener("touchstart", (e) => {
   if (e.touches.length === 1) {
     nsDragging = true;
     nsDragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: nsView.ox, oy: nsView.oy };
   }
 }, { passive: false });
+
 netStructCanvas.addEventListener("touchmove", (e) => {
   if (nsDragging && e.touches.length === 1) {
     e.preventDefault();
@@ -2648,7 +2640,10 @@ netStructCanvas.addEventListener("touchmove", (e) => {
     drawNetStructure();
   }
 }, { passive: false });
-netStructCanvas.addEventListener("touchend", () => { nsDragging = false; });
+
+netStructCanvas.addEventListener("touchend", () => {
+  nsDragging = false;
+});
 
 // 外部调用：训练完成后显示网络结构
 function showNetStructure(layerSizes, weights) {
