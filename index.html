@@ -197,7 +197,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 
 .btn {
   width: 100%;
-  padding: 11px;
+  padding: 0px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(88,166,255,0.1);
@@ -363,6 +363,9 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   min-width: 0;
 }
 .right-col #examplePanel {
+  margin-bottom: 0;
+}
+.right-col .data-edit-panel {
   margin-top: 20px;
   margin-bottom: 90px;
 }
@@ -376,7 +379,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 300px;
-  max-height: 128vh;
+  max-height: 133vh;
   min-width: 0;
   overflow: hidden;
 }
@@ -386,32 +389,51 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   overflow-x: auto;
   overflow-y: auto;
   min-height: 200px;
-  max-height: calc(128vh - 280px);
-}
-.data-edit-panel .add-btn {
-  margin-top: 0;
-  width: auto;
-  padding: 8px 16px;
-  font-size: 12px;
+  max-height: calc(133vh - 280px);
 }
 .data-edit-actions {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 .data-edit-actions .add-btn,
 .data-edit-actions .clear-btn {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  width: auto;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  height: 38px;
+  cursor: pointer;
+  transition: all 0.25s;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
 }
-.clear-btn {
+.data-edit-actions .add-btn {
+  background: rgba(88,166,255,0.1);
+  border-color: rgba(255,255,255,0.12);
+  color: #58a6ff;
+}
+.data-edit-actions .add-btn:hover {
+  background: rgba(88,166,255,0.22);
+}
+.data-edit-actions .clear-btn {
   background: rgba(255,80,80,0.08);
-  border: 1px solid rgba(255,80,80,0.3);
+  border-color: rgba(255,80,80,0.3);
   color: #ff5555;
 }
-.clear-btn:hover {
+.data-edit-actions .clear-btn:hover {
   background: rgba(255,80,80,0.2);
-  transform: translateY(-1px);
 }
+
 
 /* ===== Chart ===== */
 .chart-panel {
@@ -610,7 +632,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 }
 #netStructCanvas:active { cursor: grabbing; }
 .net-struct-tooltip {
-  position: absolute;
+  position: fixed;
   pointer-events: none;
   font-size: 11px;
   background: rgba(20,20,30,0.94);
@@ -618,7 +640,9 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid rgba(88,166,255,0.3);
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
+  max-width: 280px;
   z-index: 10;
   opacity: 0;
   transition: opacity 0.12s;
@@ -1069,28 +1093,8 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
 
   </div>
 
-  <!-- 右侧列：训练数据 + 示例 -->
+  <!-- 右侧列：示例 + 训练数据 -->
   <div class="right-col">
-  <div class="data-edit-panel">
-    <h3>📊 训练数据</h3>
-    <div class="data-edit-scroll">
-      <table class="data-table" id="dataTable">
-        <thead>
-          <tr id="dataHead">
-            <th>x₁</th>
-            <th>y₁</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="dataBody">
-        </tbody>
-      </table>
-    </div>
-    <div class="data-edit-actions">
-      <button class="btn add-btn" id="addDataBtn">+ 添加样本</button>
-      <button class="btn clear-btn" id="clearDataBtn">🗑️ 清除全部</button>
-    </div>
-  </div>
 
   <!-- 预设示例 -->
   <div class="panel" id="examplePanel">
@@ -1115,6 +1119,28 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
       </div>
     </div>
   </div>
+
+  <div class="data-edit-panel">
+    <h3>📊 训练数据</h3>
+    <div class="data-edit-scroll">
+      <table class="data-table" id="dataTable">
+        <thead>
+          <tr id="dataHead">
+            <th>x₁</th>
+            <th>y₁</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dataBody">
+        </tbody>
+      </table>
+    </div>
+    <div class="data-edit-actions">
+      <button class="btn add-btn" id="addDataBtn">+ 添加样本</button>
+      <button class="btn clear-btn" id="clearDataBtn">🗑️ 清除全部</button>
+    </div>
+  </div>
+
   </div><!-- /right-col -->
 
   <!-- 下方：Loss + Accuracy 图表 -->
@@ -3239,37 +3265,23 @@ netStructCanvas.addEventListener("mousemove", (e) => {
     if (nd.weights.length === 0) {
       html += "(无)";
     } else {
-      const shown = nd.weights.slice(0, 8);
-      shown.forEach((wv, i) => {
-        html += `${wv >= 0 ? "+" : ""}${(wv ?? 0).toFixed(4)}${i < shown.length - 1 ? ", " : ""}`;
+      nd.weights.forEach((wv, i) => {
+        html += `${wv >= 0 ? "+" : ""}${(wv ?? 0).toFixed(4)}${i < nd.weights.length - 1 ? ", " : ""}`;
       });
-      if (nd.weights.length > 8) html += `... (共${nd.weights.length}个)`;
     }
     nsTooltip.innerHTML = html;
-    const rect = netStructCanvas.getBoundingClientRect();
-    let left = rect.left + mx + 16;
-    let top = rect.top + my - 10;
-    // 先设置位置，测量后调整避免超出屏幕
-    nsTooltip.style.left = left + "px";
-    nsTooltip.style.top = top + "px";
+    const cx = e.clientX, cy = e.clientY;
+    nsTooltip.style.left = "0px";
+    nsTooltip.style.top = "0px";
     nsTooltip.style.opacity = "1";
     const tr = nsTooltip.getBoundingClientRect();
-    if (tr.right > window.innerWidth - 8) {
-      // 右侧溢出，翻转到鼠标左侧
-      left = rect.left + mx - tr.width - 16;
-    }
-    if (left < 8) {
-      // 左侧溢出，贴边
-      left = 8;
-    }
-    if (tr.bottom > window.innerHeight - 8) {
-      // 底部溢出，向上调整
-      top = rect.top + my - tr.height - 10;
-    }
-    if (top < 8) {
-      // 顶部溢出，贴边
-      top = 8;
-    }
+    const gap = 6;
+    let left = cx - tr.width / 2;
+    let top  = cy - tr.height - gap;
+    if (top < 4) top = cy + gap;
+    if (left < 4) left = 4;
+    if (left + tr.width > window.innerWidth - 4) left = window.innerWidth - tr.width - 4;
+    if (top + tr.height > window.innerHeight - 4) top = window.innerHeight - tr.height - 4;
     nsTooltip.style.left = left + "px";
     nsTooltip.style.top = top + "px";
   } else {
@@ -3286,6 +3298,11 @@ netStructCanvas.addEventListener("mouseleave", () => {
   nsTooltip.style.opacity = "0";
   netStructCanvas.style.cursor = "grab";
 });
+
+// 滚动时隐藏 tooltip，避免位置漂移
+window.addEventListener("scroll", () => {
+  nsTooltip.style.opacity = "0";
+}, { passive: true });
 
 // 触摸支持（仅拖拽）
 netStructCanvas.addEventListener("touchstart", (e) => {
@@ -3331,6 +3348,9 @@ function showNetStructure(layerSizes, weights) {
 
 function loadExampleCommon() {
   dataBody.innerHTML = "";
+  document.getElementById("architecture").value = "dense";
+  document.getElementById("networkType").value = "regression";
+  document.querySelectorAll(".arch-config").forEach(el => el.style.display = "none");
   useTestSetCb.checked = true;
   testRatioField.style.display = "block";
   document.getElementById("testRatio").value = 0.2;
