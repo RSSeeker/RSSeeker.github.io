@@ -76,6 +76,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   .layer-row .remove-layer { margin-left: auto; }
   #lossChart { height: 240px; }
   #decisionCanvas { min-height: 340px; }
+  .right-col .data-edit-panel { margin-top: 12px; }
 }
 
 /* 平板竖屏 (≤768px) */
@@ -116,7 +117,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   .data-table { font-size: 13px; }
   .data-table th, .data-table td { padding: 8px 6px; }
   .data-table input { font-size: 13px; padding: 8px 4px; min-width: 48px; }
-  .right-col .data-edit-panel { margin-bottom: 16px; }
+  .right-col .data-edit-panel { margin-top: 12px; margin-bottom: 16px; }
   .theme-toggle { top: 14px; right: 14px; width: 44px; height: 44px; }
 }
 
@@ -132,7 +133,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   .btn-row .btn { width: 100%; }
   .data-edit-actions { flex-direction: column; }
   .example-grid { grid-template-columns: 1fr; gap: 8px; }
-  .right-col .data-edit-panel { margin-bottom: 10px; }
+  .example-col h3 { font-size: 12px; }
+  .right-col .data-edit-panel { margin-top: 10px; margin-bottom: 10px; }
   .data-edit-scroll { max-height: 240px; }
   .data-table th, .data-table td { padding: 7px 4px; font-size: 12px; }
   .data-table input { font-size: 12px; min-width: 44px; }
@@ -140,6 +142,39 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   #decisionCanvas { min-height: 250px; }
   .github-link { font-size: 12px; padding: 4px 10px; }
   .theme-toggle { top: 10px; right: 10px; width: 40px; height: 40px; }
+  .infer-table { font-size: 12px; }
+  .infer-table th, .infer-table td { padding: 4px 6px; }
+  .infer-table .num-wrap input[type="number"] { font-size: 12px; padding: 5px 3px; }
+  .class-result-table { font-size: 12px; }
+  .confusion-table { font-size: 11px; }
+  .confusion-table th, .confusion-table td { padding: 5px 6px; }
+  .confusion-stats { gap: 12px; }
+  .confusion-stats .stat-item { font-size: 11px; }
+  #netStructCanvas { min-height: 220px; }
+}
+
+/* 小屏手机 (≤360px) */
+@media (max-width: 360px) {
+  body { padding: 8px 6px; }
+  h1 { font-size: 16px; }
+  .panel, .data-edit-panel, .chart-panel, .confusion-panel, .decision-boundary-panel, .infer-panel {
+    padding: 10px;
+    border-radius: 10px;
+  }
+  .panel h3, .data-edit-panel h3, .chart-panel h3, .confusion-panel h3,
+  .decision-boundary-panel h3, .infer-panel h3 { font-size: 12px; }
+  .btn { font-size: 13px; padding: 10px 0; min-height: 40px; }
+  .field input, .field select { font-size: 13px; padding: 8px 10px; min-height: 40px; }
+  .num-wrap input[type="number"] { font-size: 13px; padding-top: 8px; padding-bottom: 8px; min-height: 40px; }
+  .example-btn { font-size: 12px; padding: 9px 8px; min-height: 40px; }
+  .data-edit-actions .add-btn,
+  .data-edit-actions .clear-btn { min-height: 40px; height: 40px; font-size: 13px; }
+  .layer-row input { font-size: 13px; padding: 7px 8px; min-height: 40px; }
+  .data-edit-scroll { max-height: 200px; }
+  #lossChart { height: 180px; }
+  #decisionCanvas { min-height: 220px; }
+  .github-link { font-size: 11px; padding: 3px 8px; }
+  .theme-toggle { top: 8px; right: 8px; width: 36px; height: 36px; font-size: 16px; }
 }
 
 /* ===== 通用面板 ===== */
@@ -251,7 +286,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
 
 .btn {
   width: 100%;
-  padding: 0px;
+  padding: 10px 0;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(88,166,255,0.1);
@@ -261,11 +296,17 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   cursor: pointer;
   transition: all 0.25s;
   margin-top: 6px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn:hover { background: rgba(88,166,255,0.2); transform: translateY(-1px); }
 .btn:disabled { opacity:0.35; cursor:not-allowed; }
 .btn-row { display:flex; gap:8px; }
 .btn-row .btn { width:auto; flex:1; }
+.btn, .example-btn, .data-edit-actions .add-btn, .data-edit-actions .clear-btn, .layer-row .remove-layer {
+  user-select: none;
+  -webkit-user-select: none;
+}
 
 /* ===== 层配置 ===== */
 .layer-config {
@@ -306,6 +347,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .layer-row .remove-layer:hover { background: rgba(255,80,80,0.2); }
 #addLayerBtn {
@@ -346,6 +389,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .example-btn:hover { background: rgba(167,139,250,0.18); }
 
@@ -431,7 +476,7 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   display: flex;
   flex-direction: column;
   min-height: 300px;
-  max-height: 133vh;
+  max-height: 80vh;
   min-width: 0;
   overflow: hidden;
 }
@@ -441,7 +486,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   overflow-x: auto;
   overflow-y: auto;
   min-height: 200px;
-  max-height: calc(133vh - 280px);
+  max-height: calc(80vh - 280px);
+  -webkit-overflow-scrolling: touch;
 }
 .data-edit-actions {
   display: flex;
@@ -473,6 +519,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   background: rgba(88,166,255,0.1);
   border-color: rgba(255,255,255,0.12);
   color: #58a6ff;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .data-edit-actions .add-btn:hover {
   background: rgba(88,166,255,0.22);
@@ -481,6 +529,8 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   background: rgba(255,80,80,0.08);
   border-color: rgba(255,80,80,0.3);
   color: #ff5555;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .data-edit-actions .clear-btn:hover {
   background: rgba(255,80,80,0.2);
@@ -594,6 +644,10 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   padding: 22px;
 }
 .confusion-panel h3 { font-size:14px; color:#aaa; margin-bottom:12px; }
+#confusionMatrixWrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .confusion-table {
   width: 100%;
   border-collapse: collapse;
@@ -2087,20 +2141,16 @@ function forward(net, inputs, activation, isTraining, networkType, dropoutMask, 
           sum += node.weights[i] * (current[i] || 0);
         }
         node.z = sum;
-      }
-      if (isOut) {
-        if (networkType === "classification") {
+        if (isOut) {
           node.a = node.z;
         } else {
-          node.a = node.z;
-        }
-      } else {
-        node.a = ACT[activation].fn(node.z);
-        if (isTraining && dropoutMask && dropoutMask[l]) {
-          if (dropoutMask[l][n] === 0) {
-            node.a = 0;
-          } else {
-            node.a /= (1 - dropoutRate);
+          node.a = ACT[activation].fn(node.z);
+          if (isTraining && dropoutMask && dropoutMask[l]) {
+            if (dropoutMask[l][n] === 0) {
+              node.a = 0;
+            } else {
+              node.a /= (1 - dropoutRate);
+            }
           }
         }
       }
