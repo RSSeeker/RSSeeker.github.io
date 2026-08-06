@@ -1257,7 +1257,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
       <div class="chart-placeholder" id="chartPlaceholder">
         <div class="chart-placeholder-inner">
           <span class="chart-placeholder-icon">📊</span>
-          <span class="chart-placeholder-text">请先训练网络，曲线将在此处显示</span>
+          <span class="chart-placeholder-text" id="chartPlaceholderText">请先训练网络，曲线将在此处显示</span>
         </div>
       </div>
     </div>
@@ -1301,6 +1301,15 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
 
 <!-- ===== 依赖 ===== -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Chart.js 主 CDN 加载失败时依次尝试备用源（document.write 在解析阶段会同步加载）
+if (typeof Chart === "undefined") {
+  document.write('<script src="https://unpkg.com/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>');
+}
+if (typeof Chart === "undefined") {
+  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"><\/script>');
+}
+</script>
 <script>
 // ============================================================
 //  神经网络训练器 — 支持多优化器 / 混淆矩阵 / 决策边界
@@ -1440,6 +1449,7 @@ let testLossHistory= [];
 let lossChart      = null;
 let isTraining     = false;
 let lastTestData   = null;   // 保存最近一次测试集用于混淆矩阵
+let trainedState   = null;   // 记录训练时的网络结构，用于推理/保存前一致性校验
 
 // ===== 激活函数 & 导数 =====
 const ACT = {
@@ -1501,7 +1511,10 @@ function getArchFeatureDim(inputSize) {
   } else if (arch === "rnn") {
     return parseInt(document.getElementById("rnnHidden").value) || 8;
   } else if (arch === "attention") {
-    return parseInt(document.getElementById("attnEmbed").value) || 16;
+    const embedDim = parseInt(document.getElementById("attnEmbed").value) || 16;
+    const numHeads = Math.min(parseInt(document.getElementById("attnHeads").value) || 2, embedDim);
+    const dPerHead = Math.floor(embedDim / numHeads);
+    return dPerHead * numHeads;   // 与 attnInit 中的有效嵌入维度保持一致
   }
   return inputSize; // mlp
 }
@@ -1516,12 +1529,14 @@ function cnnInit(inputSize, actName) {
     w[f] = [];
     for (let k = 0; k < kernel; k++) w[f].push(heInit(kernel));
   }
-  const act = ACT[actName] || ACT.leaky_relu;
-  return { type: "cnn", w, b, kernel, filters, inputSize, actFn: act.fn, actDeriv: act.deriv, actName, cache: null };
+  // 注意：不在此保存函数引用（JSON.stringify 会丢失函数，导致模型保存/加载后崩溃），
+  // 前向/反向时根据 actName 从 ACT 中实时解析。
+  return { type: "cnn", w, b, kernel, filters, inputSize, actName, cache: null };
 }
 
 function cnnForward(x, p) {
-  const { w, b, kernel, filters, inputSize, actFn } = p;
+  const { w, b, kernel, filters, actName } = p;
+  const actFn = (ACT[actName] || ACT.leaky_relu).fn;
   const inLen = x.length;
   const outLen = inLen - kernel + 1;
   if (outLen <= 0) { p.cache = null; return []; }
@@ -1545,12 +1560,13 @@ function cnnForward(x, p) {
 }
 
 function cnnBackward(deltas, p) {
-  const { w, b, kernel, filters, cache, actDeriv, actName } = p;
-  const { x, preAct, postAct } = cache;
-  if (!x) {
-    return { gradW: Array(filters).fill(null).map(() => Array(kernel).fill(0)),
-             gradB: Array(filters).fill(0), gradX: Array(x ? x.length : 0).fill(0) };
+  const { w, b, kernel, filters, cache, actName } = p;
+  if (!cache) {
+    return { gradW: Array.from({length: filters}, () => Array(kernel).fill(0)),
+             gradB: Array(filters).fill(0), gradX: [] };
   }
+  const { x, preAct, postAct } = cache;
+  const actDeriv = (ACT[actName] || ACT.leaky_relu).deriv;
   // sigmoid/tanh derivatives use post-activation; ReLU-based use pre-activation
   const usesPost = (actName === "sigmoid" || actName === "tanh");
   const inLen = x.length;
@@ -2019,7 +2035,7 @@ function archAccumulate(g) {
   }
 }
 
-function archUpdateWeights(batchSize, step, lr, optimizer) {
+function archUpdateWeights(batchSize, step, lr, optimizer, l2Lambda = 0) {
   if (!archParams || !archAccGrad) return;
   const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
   const momentum = 0.9, rho = 0.999;
@@ -2028,7 +2044,7 @@ function archUpdateWeights(batchSize, step, lr, optimizer) {
   ops.step++;
 
   const applyGrad = (key, paramArr, gradArr) => {
-    const g = gradArr / batchSize;
+    const g = gradArr / batchSize + (l2Lambda > 0 ? l2Lambda * (paramArr || 0) : 0);
     const sk = `w_${key}`;
     if (optimizer === "adam") {
       const mHat = 1 - Math.pow(beta1, ops.step);
@@ -2055,18 +2071,18 @@ function archUpdateWeights(batchSize, step, lr, optimizer) {
   if (type === "cnn") {
     const { gradW, gradB } = archAccGrad;
     for (let f = 0; f < archParams.filters; f++) {
-      archParams.b[f] += applyGrad(`b_${f}`, null, gradB[f]);
+      archParams.b[f] += applyGrad(`b_${f}`, archParams.b[f], gradB[f]);
       for (let k = 0; k < archParams.kernel; k++) {
-        archParams.w[f][k] += applyGrad(`w_${f}_${k}`, null, gradW[f][k]);
+        archParams.w[f][k] += applyGrad(`w_${f}_${k}`, archParams.w[f][k], gradW[f][k]);
       }
     }
   } else if (type === "rnn") {
     const { gradWx, gradWh, gradB } = archAccGrad;
     for (let d = 0; d < archParams.hiddenDim; d++) {
-      archParams.b[d] += applyGrad(`b_${d}`, null, gradB[d]);
-      archParams.wx[d] += applyGrad(`wx_${d}`, null, gradWx[d]);
+      archParams.b[d] += applyGrad(`b_${d}`, archParams.b[d], gradB[d]);
+      archParams.wx[d] += applyGrad(`wx_${d}`, archParams.wx[d], gradWx[d]);
       for (let dd = 0; dd < archParams.hiddenDim; dd++) {
-        archParams.wh[d][dd] += applyGrad(`wh_${d}_${dd}`, null, gradWh[d][dd]);
+        archParams.wh[d][dd] += applyGrad(`wh_${d}_${dd}`, archParams.wh[d][dd], gradWh[d][dd]);
       }
     }
   } else if (type === "attention") {
@@ -2074,12 +2090,12 @@ function archUpdateWeights(batchSize, step, lr, optimizer) {
     const { embedDim, inputSize } = archParams;
     for (let d = 0; d < embedDim; d++) {
       for (let c = 0; c < inputSize; c++) {
-        archParams.wq[d][c] += applyGrad(`wq_${d}_${c}`, null, gradWq[d][c]);
-        archParams.wk[d][c] += applyGrad(`wk_${d}_${c}`, null, gradWk[d][c]);
-        archParams.wv[d][c] += applyGrad(`wv_${d}_${c}`, null, gradWv[d][c]);
+        archParams.wq[d][c] += applyGrad(`wq_${d}_${c}`, archParams.wq[d][c], gradWq[d][c]);
+        archParams.wk[d][c] += applyGrad(`wk_${d}_${c}`, archParams.wk[d][c], gradWk[d][c]);
+        archParams.wv[d][c] += applyGrad(`wv_${d}_${c}`, archParams.wv[d][c], gradWv[d][c]);
       }
       for (let cd = 0; cd < embedDim; cd++) {
-        archParams.wo[d][cd] += applyGrad(`wo_${d}_${cd}`, null, gradWo[d][cd]);
+        archParams.wo[d][cd] += applyGrad(`wo_${d}_${cd}`, archParams.wo[d][cd], gradWo[d][cd]);
       }
     }
   }
@@ -2135,6 +2151,8 @@ function forward(net, inputs, activation, isTraining, networkType, dropoutMask, 
       if (l === 0) {
         node.z = current[n] || 0;
         node.a = node.z;
+        node.rawA = node.a;
+        node.mask = 1;
       } else {
         let sum = node.bias;
         for (let i = 0; i < node.weights.length; i++) {
@@ -2143,10 +2161,15 @@ function forward(net, inputs, activation, isTraining, networkType, dropoutMask, 
         node.z = sum;
         if (isOut) {
           node.a = node.z;
+          node.rawA = node.a;
+          node.mask = 1;
         } else {
           node.a = ACT[activation].fn(node.z);
+          node.rawA = node.a;   // 保存 dropout 缩放前的激活值，供反向传播计算导数
+          node.mask = 1;
           if (isTraining && dropoutMask && dropoutMask[l]) {
-            if (dropoutMask[l][n] === 0) {
+            node.mask = dropoutMask[l][n];
+            if (node.mask === 0) {
               node.a = 0;
             } else {
               node.a /= (1 - dropoutRate);
@@ -2183,7 +2206,7 @@ function generateDropoutMask(layerSizes, dropoutRate) {
 // ============================================================
 //  训练（支持 Adam / Momentum / RMSProp / SGD）
 // ============================================================
-function train(network, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, onProgress) {
+async function train(network, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, onProgress) {
   const numLayers = network.length;
   const numTrain  = trainData.length;
   const useEarlyStop = document.getElementById("useEarlyStop").checked;
@@ -2195,7 +2218,6 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
   const hasTest = testData && testData.length > 0;
 
   // 优化器状态
-  const opt = optimizer;
   const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
   const momentum = 0.9;   // Momentum & RMSProp
   const rho = 0.999;      // RMSProp
@@ -2292,7 +2314,11 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
             }
 
             for (let i = 0; i < prevLayer.length; i++) {
-              const dAct = (l > 1 && l < numLayers - 1) ? ACT[activation].deriv(prevLayer[i].a) : 1.0;
+              let dAct = (l > 1) ? ACT[activation].deriv(prevLayer[i].rawA !== undefined ? prevLayer[i].rawA : prevLayer[i].a) : 1.0;
+              if (useDropout && l > 1) {
+                // 反向传播需乘上 dropout 掩码，并补偿前向传播的 1/(1-p) 缩放
+                dAct *= prevLayer[i].mask / (1 - dropoutRate);
+              }
               nextDeltas[i] += d * node.weights[i] * dAct;
             }
           }
@@ -2309,7 +2335,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       const bSize = batchIndices.length;
       step++;
 
-      if (opt === "adam") {
+      if (optimizer === "adam") {
         const mHat = 1.0 - Math.pow(beta1, step);
         const vHat = 1.0 - Math.pow(beta2, step);
 
@@ -2329,7 +2355,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           vW[key] = beta2 * vW[key] + (1 - beta2) * g * g;
           network[l][n].weights[i] -= lr * (mW[key] / mHat) / (Math.sqrt(vW[key] / vHat) + eps);
         }
-      } else if (opt === "momentum") {
+      } else if (optimizer === "momentum") {
         for (const key in gradB) {
           const [l, n] = key.split(",").map(Number);
           const g = gradB[key] / bSize;
@@ -2344,7 +2370,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           vW_mom[key] = momentum * vW_mom[key] - lr * g;
           network[l][n].weights[i] += vW_mom[key];
         }
-      } else if (opt === "rmsprop") {
+      } else if (optimizer === "rmsprop") {
         for (const key in gradB) {
           const [l, n] = key.split(",").map(Number);
           const g = gradB[key] / bSize;
@@ -2359,7 +2385,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
           rmsW[key] = rho * rmsW[key] + (1 - rho) * g * g;
           network[l][n].weights[i] -= lr * g / (Math.sqrt(rmsW[key]) + eps);
         }
-      } else if (opt === "sgd") {
+      } else if (optimizer === "sgd") {
         for (const key in gradB) {
           const [l, n] = key.split(",").map(Number);
           const g = gradB[key] / bSize;
@@ -2373,7 +2399,7 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       }
 
       // 更新架构权重
-      if (archParams) archUpdateWeights(bSize, step, lr, opt);
+      if (archParams) archUpdateWeights(bSize, step, lr, optimizer, l2Lambda);
 
       epochLoss += batchLoss;
     }
@@ -2430,6 +2456,11 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
       onProgress(epoch, epochLoss, testLosses[testLosses.length - 1], accInfo);
     }
 
+    // 让出主线程，使进度条 / 状态文字能够实时绘制
+    if (epoch % 10 === 0) {
+      await new Promise(r => setTimeout(r, 0));
+    }
+
     // Early stopping
     if (useEarlyStop) {
       const monitorLoss = hasTest ? testLosses[testLosses.length - 1] : epochLoss;
@@ -2440,7 +2471,8 @@ function train(network, trainData, testData, epochs, lr, batchSize, activation, 
         noImprove++;
       }
       if (noImprove >= patience) {
-        onProgress(epoch, epochLoss, testLosses[testLosses.length - 1] || undefined, "");
+        const lastTestLoss = testLosses[testLosses.length - 1];
+        onProgress(epoch, epochLoss, (lastTestLoss === null || lastTestLoss === undefined) ? undefined : lastTestLoss, "");
         break;
       }
     }
@@ -2466,9 +2498,12 @@ function extractWeights(net) {
 
 // ===== 恢复权重 =====
 function applyWeights(net, weights) {
-  for (let l = 0; l < weights.length; l++) {
+  if (!net || !weights) return;
+  const nLayers = Math.min(weights.length, net.length - 1);
+  for (let l = 0; l < nLayers; l++) {
     const destLayer = net[l + 1];  // 目标层
-    for (let n = 0; n < weights[l].length; n++) {
+    for (let n = 0; n < Math.min(weights[l].length, destLayer.length); n++) {
+      if (!weights[l][n]) continue;
       destLayer[n].weights = weights[l][n].weights.slice();
       destLayer[n].bias = weights[l][n].bias;
     }
@@ -2520,10 +2555,11 @@ const useGPUCb = document.getElementById("useGPU");
 useGPUCb.addEventListener("change", () => {
   useGPU = useGPUCb.checked;
   localStorage.setItem("nn_useGPU", useGPU);
-  // GPU 设置需要在下次渲染时生效，这里提示用户
+  // 立即重建图表以应用新的 canvas 上下文设置
+  recreateChartIfNeeded();
   statusEl.textContent = useGPU
-    ? "✅ WebGL / GPU 加速已启用（下次训练/渲染时将生效）"
-    : "⚠️ WebGL / GPU 加速已禁用，将使用软件渲染（重新训练或刷新页面后生效）";
+    ? "✅ WebGL / GPU 加速已启用（图表已刷新，其他画布下次绘制时生效）"
+    : "⚠️ WebGL / GPU 加速已禁用，将使用软件渲染（图表已刷新，其他画布下次绘制时生效）";
 });
 // 初始化 GPU 开关状态
 useGPUCb.checked = useGPU;
@@ -2752,7 +2788,8 @@ function splitTrainTest(rawData, testRatio) {
     const j = Math.floor(rng() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  const nTest = Math.max(1, Math.floor(shuffled.length * testRatio));
+  // 至少保留 1 条训练样本，避免训练集为空导致 Loss 为 NaN
+  const nTest = Math.min(shuffled.length - 1, Math.max(1, Math.floor(shuffled.length * testRatio)));
   const testSet = shuffled.slice(0, nTest);
   const trainSet = shuffled.slice(nTest);
   const n  = parseInt(document.getElementById("inputSize").value) || 1;
@@ -2766,22 +2803,34 @@ function splitTrainTest(rawData, testRatio) {
 
 // ===== Loss 图表（含测试集 + 准确率双 Y 轴） =====
 function drawLossChart(losses, testLosses, accuracies, networkType) {
+  if (typeof Chart === "undefined") {
+    const msgEl = document.getElementById("chartPlaceholderText");
+    if (msgEl) msgEl.textContent = "⚠️ Chart.js 图表库加载失败，无法绘制曲线。请检查网络连接后刷新页面。";
+    showChartPlaceholder();
+    return;
+  }
   const ctx = document.getElementById("lossChart").getContext("2d");
   if (lossChart) lossChart.destroy();
 
-  let dataLoss = losses;
-  if (dataLoss.length > 500) {
-    const step = Math.floor(dataLoss.length / 500);
-    dataLoss = dataLoss.filter((_, i) => i % step === 0);
-  }
-  let dataTest = testLosses.filter(v => v !== null);
-  if (dataTest.length > 500) {
-    const step = Math.floor(dataTest.length / 500);
-    dataTest = dataTest.filter((_, i) => i % step === 0);
-  }
+  // 超过 500 点时按原始下标抽稀，保证 x 轴仍对应真实 epoch
+  const decimate = (arr) => {
+    if (arr.length <= 500) return { data: arr, labels: arr.map((_, i) => i) };
+    const step = Math.floor(arr.length / 500);
+    const data = [], labels = [];
+    for (let i = 0; i < arr.length; i += step) { data.push(arr[i]); labels.push(i); }
+    return { data, labels };
+  };
 
-  const labels = dataLoss.map((_, i) => i * Math.round(losses.length / dataLoss.length));
+  const decLoss = decimate(losses);
+  const dataLoss = decLoss.data;
+  const labels = decLoss.labels;
   const lossLabel = networkType === "classification" ? "Cross Entropy Loss" : "MSE Loss";
+
+  // 测试 Loss 与准确率按原始 epoch 对齐（缺失处保留 null 断开曲线）
+  const testFull = losses.map((_, i) => testLosses[i] !== null ? testLosses[i] : null);
+  const dataTest = decimate(testFull).data;
+  const accFull = losses.map((_, i) => accuracies[i] !== null ? accuracies[i] : null);
+  const accData = decimate(accFull).data;
 
   const datasets = [
     {
@@ -2798,7 +2847,6 @@ function drawLossChart(losses, testLosses, accuracies, networkType) {
   ];
 
   if (dataTest.length > 0) {
-    const testLabels = dataTest.map((_, i) => i * Math.round(testLosses.filter(v=>v!==null).length / dataTest.length));
     datasets.push({
       label: "Test " + lossLabel,
       data: dataTest,
@@ -2816,8 +2864,6 @@ function drawLossChart(losses, testLosses, accuracies, networkType) {
   // 准确率（分类任务）
   const hasAcc = accuracies && accuracies.some(v => v !== null);
   if (hasAcc) {
-    const accData = accuracies.filter(v => v !== null);
-    const accLabels = accData.map((_, i) => i * Math.round(accuracies.filter(v=>v!==null).length / accData.length));
     datasets.push({
       label: "Test Accuracy",
       data: accData,
@@ -3047,6 +3093,11 @@ window.addEventListener("resize", () => {
     const d = decisionBoundaryData;
     drawDecisionBoundary(d.net, d.trainData, d.testData, d.activation, d.networkType, d.numClasses);
   }
+});
+
+// 窗口缩放后重绘网络结构画布（按当前宽度重建位图，避免拉伸模糊）
+window.addEventListener("resize", () => {
+  if (nsData) { resizeNetStructCanvas(); drawNetStructure(); }
 });
 
 // 手机端 visualViewport 变化时也重绘（地址栏收起/弹出、软键盘等）
@@ -3927,6 +3978,24 @@ trainBtn.addEventListener("click", async () => {
     isTraining = false;
     return;
   }
+  if (!epochs || epochs < 1) {
+    statusEl.textContent = "⚠️ 训练轮数必须 ≥ 1";
+    trainBtn.disabled = false;
+    isTraining = false;
+    return;
+  }
+  if (!batchSize || batchSize < 1) {
+    statusEl.textContent = "⚠️ 批大小必须 ≥ 1";
+    trainBtn.disabled = false;
+    isTraining = false;
+    return;
+  }
+  if (!(lr > 0)) {
+    statusEl.textContent = "⚠️ 学习率必须大于 0";
+    trainBtn.disabled = false;
+    isTraining = false;
+    return;
+  }
 
   // 划分训练集 / 测试集
   let trainData, testData;
@@ -3940,6 +4009,13 @@ trainBtn.addEventListener("click", async () => {
     trainData = allRawData.map(r => [r.slice(0, n), r.slice(n, n + out)]);
     testData = [];
     lastTestData = [];
+  }
+
+  if (trainData.length === 0) {
+    statusEl.textContent = "⚠️ 训练集为空，请检查样本数量与测试集比例";
+    trainBtn.disabled = false;
+    isTraining = false;
+    return;
   }
 
   // 分类网络：检查 one-hot
@@ -3968,7 +4044,7 @@ trainBtn.addEventListener("click", async () => {
   const startTime = performance.now();
 
   try {
-    const results = train(net, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, (epoch, loss, testLoss, accInfo) => {
+    const results = await train(net, trainData, testData, epochs, lr, batchSize, activation, networkType, dropoutRate, l2Lambda, optimizer, (epoch, loss, testLoss, accInfo) => {
       const pct = Math.min(100, Math.round(epoch / epochs * 100));
       progressFill.style.width = pct + "%";
       const lossLabel = networkType === "classification" ? "CE" : "MSE";
@@ -3987,6 +4063,10 @@ trainBtn.addEventListener("click", async () => {
     lossHistory    = results.losses;
     testLossHistory= results.testLosses;
     accHistory     = results.accuracies;
+    trainedState   = {
+      layerSizes: layerSizes.slice(),
+      architecture: getArchitectureType(),
+    };
 
     statusEl.textContent = `✅ 训练完成！耗时 ${elapsed}s，Final Loss: ${results.losses[results.losses.length - 1].toFixed(10)}` +
       (results.accuracies.length > 0 && results.accuracies[results.accuracies.length-1] !== null
@@ -4167,6 +4247,10 @@ function restoreFromModelJSON(parsed) {
 
   applyWeights(net, parsed.weights);
   currentWeights = extractWeights(net);
+  trainedState = {
+    layerSizes: layerSizes.slice(),
+    architecture: cfg.archConfig && cfg.archConfig.architecture ? cfg.archConfig.architecture : "mlp",
+  };
 
   const existingLayers = layerConfig.querySelectorAll("[data-layer]");
   const targetHiddenCount = layerSizes.length - 2;
@@ -4230,6 +4314,13 @@ function restoreFromModelJSON(parsed) {
 // ===== 保存 / 加载 =====
 document.getElementById("saveBtn").addEventListener("click", () => {
   if (!currentWeights) { statusEl.textContent = "⚠️ 没有可保存的模型，请先训练"; return; }
+  if (trainedState) {
+    const curState = { layerSizes: getLayerSizes(), architecture: getArchitectureType() };
+    if (JSON.stringify(curState) !== JSON.stringify(trainedState)) {
+      statusEl.textContent = "⚠️ 网络结构已更改，无法保存当前模型，请重新训练后再保存";
+      return;
+    }
+  }
   const model = buildModelJSON();
   const jsonStr = JSON.stringify(model, null, 2);
   const blob = new Blob([jsonStr], { type: "application/json" });
@@ -4271,6 +4362,13 @@ document.getElementById("loadBtn").addEventListener("click", () => {
 // ===== 推理 =====
 document.getElementById("inferBtn").addEventListener("click", () => {
   if (!currentWeights) { inferResult.textContent = "⚠️ 请先训练网络"; return; }
+  if (trainedState) {
+    const curState = { layerSizes: getLayerSizes(), architecture: getArchitectureType() };
+    if (JSON.stringify(curState) !== JSON.stringify(trainedState)) {
+      inferResult.textContent = "⚠️ 网络结构已更改，请重新训练后再推理";
+      return;
+    }
+  }
   const inputs = [];
   document.getElementById("inferBody").querySelectorAll("input").forEach(el => {
     inputs.push(parseFloat(el.value) || 0);
@@ -4316,6 +4414,11 @@ window.addEventListener('load', () => {
 
 // ===== 初始图表 =====
 (function() {
+  if (typeof Chart === "undefined") {
+    const msgEl = document.getElementById("chartPlaceholderText");
+    if (msgEl) msgEl.textContent = "⚠️ Chart.js 图表库加载失败，请检查网络连接后刷新页面";
+    return;
+  }
   const gridClr2 = isLightTheme() ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.06)";
   const ctx = document.getElementById("lossChart").getContext("2d");
   lossChart = new Chart(ctx, {
