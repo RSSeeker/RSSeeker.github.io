@@ -2412,32 +2412,72 @@ async function train(network, trainData, testData, epochs, lr, batchSize, activa
     if (hasTest) {
       let tLoss = 0;
       let correct = 0;
+      // 每个输出维度的 R² 累加器（多输出按维平均，与 Python 版 Model.score 一致）
+      let r2SumY = null, r2SumY2 = null, r2Res = null;
+      // 分类 target 解析：既接受 one-hot/概率分布，也接受类别索引
+      // （对应 Python 修好后的 score：是列表就取 argmax，是标量就直接当索引）
+      const targetIndexOf = (yv, numClasses) => {
+        if (Array.isArray(yv)) {
+          if (yv.length === 1) return Math.round(yv[0]);   // [2] 这种当作索引
+          if (yv.length >= numClasses) {                    // one-hot / 概率分布
+            let best = 0;
+            for (let n = 1; n < yv.length; n++) if (yv[n] > yv[best]) best = n;
+            return best;
+          }
+          let best = 0;
+          for (let n = 1; n < yv.length; n++) if (yv[n] > yv[best]) best = n;
+          return best;
+        }
+        return Math.round(yv);
+      };
       for (const sample of testData) {
         const x = sample[0], y = sample[1];
         forward(network, archForward(x), activation, false, networkType, null);
         const outputLayer = network[numLayers - 1];
         if (networkType === "classification") {
-          for (let n = 0; n < outputLayer.length; n++) {
-            tLoss -= y[n] * Math.log(Math.max(outputLayer[n].a, 1e-15));
+          const actual = targetIndexOf(y, outputLayer.length);
+          if (Array.isArray(y)) {
+            for (let n = 0; n < outputLayer.length; n++) {
+              tLoss -= y[n] * Math.log(Math.max(outputLayer[n].a, 1e-15));
+            }
+          } else {
+            // 索引型 target：CE = -log(p[actual])（与 Python 的 cross_entropy_loss 一致）
+            tLoss -= Math.log(Math.max(outputLayer[actual].a, 1e-15));
           }
           let pred = 0, maxP = outputLayer[0].a;
           for (let n = 1; n < outputLayer.length; n++) {
             if (outputLayer[n].a > maxP) { maxP = outputLayer[n].a; pred = n; }
           }
-          let actual = 0;
-          for (let n = 1; n < y.length; n++) {
-            if (y[n] > y[actual]) actual = n;
-          }
           if (pred === actual) correct++;
         } else {
+          if (r2SumY === null) {
+            r2SumY = new Array(outputLayer.length).fill(0);
+            r2SumY2 = new Array(outputLayer.length).fill(0);
+            r2Res = new Array(outputLayer.length).fill(0);
+          }
           for (let n = 0; n < outputLayer.length; n++) {
             const diff = outputLayer[n].a - y[n];
             tLoss += diff * diff;
+            // 同时累计每个输出维度的 R² 统计量
+            r2SumY[n] += y[n];
+            r2SumY2[n] += y[n] * y[n];
+            r2Res[n] += diff * diff;
           }
           tLoss /= outputLayer.length;
         }
       }
       tLoss /= testData.length;
+      // 回归 R²：对每个输出维度分别算 R² 再取平均（Python 修好后就是这个语义）
+      let r2Score = null;
+      if (networkType !== "classification" && r2SumY !== null && testData.length > 0) {
+        const nT = testData.length;
+        let acc = 0;
+        for (let j = 0; j < r2SumY.length; j++) {
+          const ssTot = r2SumY2[j] - (r2SumY[j] * r2SumY[j]) / nT;   // Σy² - (Σy)²/n
+          acc += 1.0 - r2Res[j] / Math.max(ssTot, 1e-15);
+        }
+        r2Score = acc / r2SumY.length;
+      }
       testLosses.push(tLoss);
       if (networkType === "classification") {
         accuracies.push(correct / testData.length);
@@ -2452,7 +2492,7 @@ async function train(network, trainData, testData, epochs, lr, batchSize, activa
     if (epoch % 10 === 0 || epoch === 1) {
       const accInfo = hasTest && networkType === "classification"
         ? `, Acc: ${(accuracies[accuracies.length - 1] * 100).toFixed(1)}%`
-        : "";
+        : (hasTest && r2Score !== null ? `, R²: ${r2Score.toFixed(4)}` : "");
       onProgress(epoch, epochLoss, testLosses[testLosses.length - 1], accInfo);
     }
 
