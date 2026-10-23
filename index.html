@@ -2474,7 +2474,13 @@ async function train(network, trainData, testData, epochs, lr, batchSize, activa
         let acc = 0;
         for (let j = 0; j < r2SumY.length; j++) {
           const ssTot = r2SumY2[j] - (r2SumY[j] * r2SumY[j]) / nT;   // Σy² - (Σy)²/n
-          acc += 1.0 - r2Res[j] / Math.max(ssTot, 1e-15);
+          // 目标恒定（或浮点抵消成 0/负数）时 R² 无定义：完全预测对记 1，否则记 0。
+          // 原先把 ssTot 钳到 1e-15 会给出约 -1e15 的荒谬分数（与 Python 侧同一处修复）。
+          if (ssTot <= 1e-12) {
+            acc += r2Res[j] === 0 ? 1.0 : 0.0;
+          } else {
+            acc += 1.0 - r2Res[j] / ssTot;
+          }
         }
         r2Score = acc / r2SumY.length;
       }
