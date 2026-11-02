@@ -875,6 +875,65 @@ h1 { font-size: 24px; margin-bottom: 4px; }
   border-color: rgba(88,166,255,0.45);
 }
 
+
+/* ===== 因果语言模型面板 ===== */
+.llm-panel {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 22px;
+  margin-top: 20px;
+}
+.llm-panel h3 { font-size:14px; color:#aaa; margin-bottom:6px; }
+.llm-hint { font-size:12px; color:#777; line-height:1.7; margin-bottom:14px; }
+.llm-grid { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
+.llm-col { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.llm-label { font-size:12px; color:#999; }
+.llm-panel textarea,
+.llm-panel input[type="text"] {
+  width:100%;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,0.1);
+  background:rgba(255,255,255,0.05);
+  color:#eee;
+  font-size:13px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize:vertical;
+}
+.llm-panel textarea:focus,
+.llm-panel input:focus { outline:none; border-color:#58a6ff; }
+.llm-row { display:flex; gap:10px; flex-wrap:wrap; }
+.llm-num { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#999; flex:1; min-width:86px; }
+.llm-num input {
+  width:100%;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,0.1);
+  background:rgba(255,255,255,0.05);
+  color:#eee;
+  font-size:13px;
+}
+.llm-num input:focus { outline:none; border-color:#58a6ff; }
+.llm-out-label { font-size:12px; color:#999; margin-top:4px; }
+.llm-out {
+  min-height:76px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:rgba(88,166,255,0.08);
+  border:1px solid rgba(88,166,255,0.18);
+  color:#cfe6ff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size:13px;
+  line-height:1.6;
+  white-space:pre-wrap;
+  word-break:break-all;
+}
+.llm-stats { font-size:11px; color:#777; }
+@media (max-width: 820px) {
+  .llm-grid { grid-template-columns: 1fr; }
+}
+
 /* ===== 亮色主题覆盖 ===== */
 body.light {
   background: #f5f5f7;
@@ -899,6 +958,17 @@ body.light .infer-panel h3 {
   color: #555;
   border-bottom-color: rgba(0,0,0,0.06);
 }
+body.light .llm-panel { background: rgba(0,0,0,0.025); border-color: rgba(0,0,0,0.08); }
+body.light .llm-panel h3 { color:#555; }
+body.light .llm-panel textarea,
+body.light .llm-panel input[type="text"],
+body.light .llm-num input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.12); color:#1a1a1a; }
+body.light .llm-out { background: rgba(88,166,255,0.12); color:#0b3d6b; border-color: rgba(88,166,255,0.3); }
+body.light .llm-label,
+body.light .llm-num,
+body.light .llm-hint,
+body.light .llm-stats,
+body.light .llm-out-label { color:#666; }
 body.light .field label,
 body.light .toggle-row label.toggle-label,
 body.light .infer-table td:first-child { color: #555; }
@@ -1295,6 +1365,40 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
     </table>
     <button class="btn" id="inferBtn" style="width:auto;padding:10px 28px;">▶ 预测</button>
     <div class="infer-result" id="inferResult"></div>
+  </div>
+
+  <!-- 因果语言模型（字符级 GPT） -->
+  <div class="llm-panel" id="llmPanel">
+    <h3>🤖 因果语言模型（字符级 GPT）</h3>
+    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。</div>
+    <div class="llm-grid">
+      <div class="llm-col">
+        <label class="llm-label" for="llmCorpus">训练语料（越规律越容易学）</label>
+        <textarea id="llmCorpus" rows="6" spellcheck="false">012012012012012012012012012</textarea>
+        <div class="llm-row">
+          <span class="llm-num"><label for="llmEpochs">轮数</label><input type="number" id="llmEpochs" value="300" min="1" max="5000"></span>
+          <span class="llm-num"><label for="llmLr">学习率</label><input type="number" id="llmLr" value="0.02" step="0.005" min="0.0001" max="1"></span>
+          <span class="llm-num"><label for="llmDim">模型维度</label><input type="number" id="llmDim" value="16" step="4" min="4" max="64"></span>
+        </div>
+        <button class="btn" id="llmTrainBtn">▶ 训练语言模型</button>
+        <div class="progress-wrap">
+          <div class="progress-bar"><div class="progress-fill" id="llmProgressFill"></div></div>
+          <div class="progress-text" id="llmProgressText">未开始</div>
+        </div>
+      </div>
+      <div class="llm-col">
+        <label class="llm-label" for="llmPrompt">提示（从这里往下续写）</label>
+        <input type="text" id="llmPrompt" value="012" spellcheck="false">
+        <div class="llm-row">
+          <span class="llm-num"><label for="llmNew">续写长度</label><input type="number" id="llmNew" value="24" min="1" max="400"></span>
+          <span class="llm-num"><label for="llmTemp">温度</label><input type="number" id="llmTemp" value="0.8" step="0.1" min="0.1" max="2"></span>
+        </div>
+        <button class="btn" id="llmGenBtn" disabled>✨ 续写</button>
+        <div class="llm-out-label">生成结果</div>
+        <div class="llm-out" id="llmOut">（先训练，再点续写）</div>
+        <div class="llm-stats" id="llmStats"></div>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -4494,6 +4598,513 @@ function clearLossChart() {
   if (lossChart) { lossChart.destroy(); lossChart = null; }
   showChartPlaceholder();
 }
+
+/* ===================== 因果语言模型（字符级 GPT） ===================== */
+(function () {
+"use strict";
+/* ===================== LLM 核心（先在 Node 里验证，再嵌进 index.html） ===================== */
+
+function llmSeedRng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function llmGauss(rand) {
+  const u1 = Math.max(rand(), 1e-12), u2 = rand();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+function llmZeros(shape) {
+  if (shape.length === 1) return new Array(shape[0]).fill(0);
+  return Array.from({ length: shape[0] }, () => llmZeros(shape.slice(1)));
+}
+
+function llmZerosLike(o) {
+  if (Array.isArray(o)) return o.map(v => llmZerosLike(v));
+  if (o && typeof o === "object") {
+    const out = {};
+    for (const k in o) out[k] = llmZerosLike(o[k]);
+    return out;
+  }
+  return 0;                       /* 叶子是数字：同形状的 0 */
+}
+
+function llmGaussMat(rows, cols, rand, scale) {
+  return Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => llmGauss(rand) * scale));
+}
+
+/* 正弦位置编码（固定表，无梯度） */
+function llmPosTable(maxLen, d) {
+  const pe = [];
+  for (let t = 0; t < maxLen; t++) {
+    const row = [];
+    for (let i = 0; i < d; i++) {
+      const half = Math.floor(i / 2);
+      const freq = Math.exp(-Math.log(10000) * 2 * half / d);
+      row.push(i % 2 === 0 ? Math.sin(t * freq) : Math.cos(t * freq));
+    }
+    pe.push(row);
+  }
+  return pe;
+}
+
+function llmCreate(cfg) {
+  const V = cfg.vocabSize, d = cfg.dModel, H = cfg.heads, F = cfg.dff;
+  const T = cfg.maxLen, rand = cfg.rand || Math.random;
+  if (V < 2 || d < 2 || F < 1 || T < 2) throw new Error("LLM 配置非法");
+  if (d % H !== 0) throw new Error("d_model 必须能被头数整除");
+
+  const p = {
+    E: llmGaussMat(V, d, rand, 0.1),
+    Wq: llmGaussMat(d, d, rand, 1 / Math.sqrt(d)),
+    Wk: llmGaussMat(d, d, rand, 1 / Math.sqrt(d)),
+    Wv: llmGaussMat(d, d, rand, 1 / Math.sqrt(d)),
+    Wo: llmGaussMat(d, d, rand, 1 / Math.sqrt(d)),
+    bq: llmZeros([d]), bk: llmZeros([d]), bv: llmZeros([d]), bo: llmZeros([d]),
+    ln1g: new Array(d).fill(1), ln1b: llmZeros([d]),
+    W1: llmGaussMat(F, d, rand, Math.sqrt(2 / d)), b1: llmZeros([F]),
+    W2: llmGaussMat(d, F, rand, Math.sqrt(2 / F)), b2: llmZeros([d]),
+    ln2g: new Array(d).fill(1), ln2b: llmZeros([d]),
+    Wout: llmGaussMat(V, d, rand, Math.sqrt(2 / d)), bout: llmZeros([V]),
+  };
+  return {
+    cfg: { vocabSize: V, dModel: d, heads: H, dff: F, maxLen: T, dh: d / H },
+    p, g: llmZerosLike(p), mo: llmZerosLike(p), vo: llmZerosLike(p),
+    PE: llmPosTable(T, d), step: 0,
+  };
+}
+
+/* ---------------- 基础运算 ---------------- */
+function mv(W, x) {
+  const out = new Array(W.length).fill(0);
+  for (let i = 0; i < W.length; i++) {
+    const row = W[i];
+    let s = 0;
+    for (let j = 0; j < x.length; j++) s += row[j] * x[j];
+    out[i] = s;
+  }
+  return out;
+}
+function mvT(W, y) {
+  const out = new Array(W[0].length).fill(0);
+  for (let i = 0; i < W.length; i++) {
+    const yi = y[i];
+    if (yi === 0) continue;
+    const row = W[i];
+    for (let j = 0; j < out.length; j++) out[j] += row[j] * yi;
+  }
+  return out;
+}
+function addVec(a, b) { return a.map((v, i) => v + b[i]); }
+function addInto(t, s) { for (let i = 0; i < t.length; i++) t[i] += s[i]; }
+function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
+function softmaxRow(row) {
+  let mx = -Infinity;
+  for (let i = 0; i < row.length; i++) if (row[i] > mx) mx = row[i];
+  const ex = row.map(v => Math.exp(v - mx));
+  let sum = 0;
+  for (let i = 0; i < ex.length; i++) sum += ex[i];
+  return ex.map(v => v / sum);
+}
+function lnForward(x, gamma, beta) {
+  const n = x.length;
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += x[i];
+  mean /= n;
+  let vs = 0;
+  for (let i = 0; i < n; i++) { const dv = x[i] - mean; vs += dv * dv; }
+  const inv = 1 / Math.sqrt(vs / n + 1e-5);
+  const xh = x.map(v => (v - mean) * inv);
+  return { y: xh.map((v, i) => v * gamma[i] + beta[i]), cache: { xh, inv, n } };
+}
+/* 返回 dx，并把 dgamma/dbeta 累加进参数梯度 */
+function lnBackward(dy, gamma, cache, dgamma, dbeta) {
+  const { xh, inv, n } = cache;
+  let sumDy = 0, sumDyXh = 0;
+  const d = new Array(n);
+  for (let i = 0; i < n; i++) {
+    d[i] = dy[i] * gamma[i];
+    dgamma[i] += dy[i] * xh[i];
+    dbeta[i] += dy[i];
+    sumDy += d[i];
+    sumDyXh += d[i] * xh[i];
+  }
+  const dx = new Array(n);
+  for (let i = 0; i < n; i++) dx[i] = (inv / n) * (n * d[i] - sumDy - xh[i] * sumDyXh);
+  return dx;
+}
+
+/* ---------------- 前向 ---------------- */
+function llmForward(m, ids) {
+  const { vocabSize: V, dModel: d, heads: H, dff: F, dh } = m.cfg;
+  const T = ids.length;
+  if (T < 1) throw new Error("至少 1 个 token");
+  if (T > m.cfg.maxLen) throw new Error("序列超过 maxLen");
+  const p = m.p;
+
+  const x0 = ids.map((id, t) => addVec(p.E[id], m.PE[t]));
+  const ln1 = x0.map(v => lnForward(v, p.ln1g, p.ln1b));
+  const a = ln1.map(o => o.y);
+  const q = a.map(v => addVec(mv(p.Wq, v), p.bq));
+  const k = a.map(v => addVec(mv(p.Wk, v), p.bk));
+  const vv = a.map(v => addVec(mv(p.Wv, v), p.bv));
+
+  const scale = Math.sqrt(dh);
+  const attn = [], headOut = [];
+  for (let h = 0; h < H; h++) {
+    const off = h * dh;
+    const qh = q.map(r => r.slice(off, off + dh));
+    const kh = k.map(r => r.slice(off, off + dh));
+    const vh = vv.map(r => r.slice(off, off + dh));
+    const aw = [];
+    for (let i = 0; i < T; i++) {
+      const row = new Array(T).fill(-Infinity);
+      for (let j = 0; j <= i; j++) row[j] = dot(qh[i], kh[j]) / scale;
+      aw.push(softmaxRow(row));      /* exp(-Infinity) = 0：mask 位置权重恰为 0 */
+    }
+    const out = [];
+    for (let i = 0; i < T; i++) {
+      const o = new Array(dh).fill(0);
+      for (let j = 0; j <= i; j++) {
+        const wgt = aw[i][j];
+        for (let u = 0; u < dh; u++) o[u] += wgt * vh[j][u];
+      }
+      out.push(o);
+    }
+    attn.push(aw);
+    headOut.push(out);
+  }
+
+  const concat = [];
+  for (let i = 0; i < T; i++) {
+    let row = [];
+    for (let h = 0; h < H; h++) row = row.concat(headOut[h][i]);
+    concat.push(row);
+  }
+  const proj = concat.map(c => addVec(mv(p.Wo, c), p.bo));
+  const h1 = x0.map((v, i) => addVec(v, proj[i]));
+
+  const ln2 = h1.map(v => lnForward(v, p.ln2g, p.ln2b));
+  const b2in = ln2.map(o => o.y);
+  const pre = b2in.map(b => addVec(mv(p.W1, b), p.b1));
+  const act = pre.map(r => r.map(z => (z > 0 ? z : 0)));
+  const fout = act.map(r => addVec(mv(p.W2, r), p.b2));
+  const h2 = h1.map((v, i) => addVec(v, fout[i]));
+
+  const logits = h2.map(hv => addVec(mv(p.Wout, hv), p.bout));
+  const nPred = Math.max(1, T - 1);      /* T=1 只取 logits，没有预测位 */
+  let loss = 0;
+  for (let t = 0; t < T - 1; t++) {
+    const probs = softmaxRow(logits[t]);
+    loss += -Math.log(Math.max(probs[ids[t + 1]], 1e-12));
+  }
+  loss /= nPred;
+
+  const cache = { ids, x0, ln1, a, q, k, vv, attn, concat, ln2, b2in, pre, act, h1, h2, logits, nPred, scale };
+  return { loss, logits, cache };
+}
+
+/* ---------------- 反向（把梯度累加进 m.g；调用前请先 llmZeroGrad） ---------------- */
+function llmBackward(m, cache) {
+  const { vocabSize: V, dModel: d, heads: H, dff: F, dh } = m.cfg;
+  const { ids, a, q, k, vv, attn, concat, ln1, ln2, b2in, pre, act, h1, h2, logits, nPred, scale } = cache;
+  const p = m.p, g = m.g;
+  const T = ids.length;
+
+  /* 交叉熵 → dlogits */
+  const dh2 = Array.from({ length: T }, () => new Array(d).fill(0));
+  for (let t = 0; t < nPred; t++) {
+    const probs = softmaxRow(logits[t]);
+    const target = ids[t + 1];
+    probs[target] -= 1;
+    for (let vi = 0; vi < V; vi++) probs[vi] /= nPred;
+
+    for (let vi = 0; vi < V; vi++) {
+      const dl = probs[vi];
+      if (dl === 0) continue;
+      g.bout[vi] += dl;
+      const row = g.Wout[vi];
+      for (let j = 0; j < d; j++) row[j] += dl * h2[t][j];
+    }
+    addInto(dh2[t], mvT(p.Wout, probs));
+  }
+
+  /* FFN + 残差 + LN2 */
+  const dpre = pre.map(() => new Array(F).fill(0));
+  for (let t = 0; t < T; t++) {
+    addInto(g.b2, dh2[t]);
+    for (let i = 0; i < d; i++) {
+      const dhi = dh2[t][i];
+      if (dhi === 0) continue;
+      const row = g.W2[i];
+      for (let j = 0; j < F; j++) row[j] += dhi * act[t][j];
+    }
+    const dact = mvT(p.W2, dh2[t]);
+    for (let j = 0; j < F; j++) dpre[t][j] = pre[t][j] > 0 ? dact[j] : 0;
+    addInto(g.b1, dpre[t]);
+    for (let i = 0; i < F; i++) {
+      const dp = dpre[t][i];
+      if (dp === 0) continue;
+      const row = g.W1[i];
+      for (let j = 0; j < d; j++) row[j] += dp * b2in[t][j];
+    }
+  }
+  const dh1 = h2.map((_, t) => dh2[t].slice());   /* h2 = h1 + fout */
+  for (let t = 0; t < T; t++) {
+    const db = mvT(p.W1, dpre[t]);
+    addInto(dh1[t], lnBackward(db, p.ln2g, ln2[t].cache, g.ln2g, g.ln2b));
+  }
+
+  /* 注意力 + 残差 + LN1 */
+  const dconcat = dh1.map(v => mvT(p.Wo, v));
+  for (let t = 0; t < T; t++) {
+    addInto(g.bo, dh1[t]);
+    for (let i = 0; i < d; i++) {
+      const dhi = dh1[t][i];
+      if (dhi === 0) continue;
+      const row = g.Wo[i];
+      for (let j = 0; j < d; j++) row[j] += dhi * concat[t][j];
+    }
+  }
+
+  const dq = Array.from({ length: T }, () => new Array(d).fill(0));
+  const dk = Array.from({ length: T }, () => new Array(d).fill(0));
+  const dv = Array.from({ length: T }, () => new Array(d).fill(0));
+
+  for (let h = 0; h < H; h++) {
+    const off = h * dh;
+    /* 每头的 dO 切片；先算 dattn 与 dv */
+    const dO = dconcat.map(row => row.slice(off, off + dh));
+    const dattn = Array.from({ length: T }, () => new Array(T).fill(0));
+    for (let t = 0; t < T; t++) {
+      for (let j = 0; j <= t; j++) {
+        dattn[t][j] = dot(dO[t], vv[j].slice(off, off + dh));
+        for (let u = 0; u < dh; u++) dv[j][off + u] += attn[h][t][j] * dO[t][u];
+      }
+    }
+    /* softmax 反传（被掩码的位置 attn=0，梯度自然为 0） */
+    for (let t = 0; t < T; t++) {
+      let s = 0;
+      for (let j = 0; j <= t; j++) s += attn[h][t][j] * dattn[t][j];
+      for (let j = 0; j <= t; j++) {
+        const ds = attn[h][t][j] * (dattn[t][j] - s) / scale;
+        for (let u = 0; u < dh; u++) {
+          dq[t][off + u] += ds * k[j][off + u];   /* q_t 对 key j 求导，不是 key t */
+          dk[j][off + u] += ds * q[t][off + u];
+          if (globalThis.__TRACE && h === 0 && t === 1) {
+            console.error("t=1 j=" + j + " u=" + u + " ds=" + ds + " k=" + k[t][off + u] + " dqnow=" + dq[1][off + u] + " q=" + q[t][off + u] + " dknow=" + dk[j][off + u]);
+          }
+        }
+      }
+    }
+  }
+
+  /* q/k/v 的线性层梯度 + 到输入的梯度 */
+  const da = Array.from({ length: T }, () => new Array(d).fill(0));
+  for (let t = 0; t < T; t++) {
+    addInto(g.bq, dq[t]); addInto(g.bk, dk[t]); addInto(g.bv, dv[t]);
+    for (let i = 0; i < d; i++) {
+      const gjq = g.Wq[i], gjk = g.Wk[i], gjv = g.Wv[i];
+      const aq = a[t];
+      for (let j = 0; j < d; j++) {
+        gjq[j] += dq[t][i] * aq[j];
+        gjk[j] += dk[t][i] * aq[j];
+        gjv[j] += dv[t][i] * aq[j];
+      }
+    }
+    const dx = mvT(p.Wq, dq[t]);
+    addInto(dx, mvT(p.Wk, dk[t]));
+    addInto(dx, mvT(p.Wv, dv[t]));
+    addInto(da[t], dx);
+  }
+
+  /* LN1 + 词向量（残差直通） */
+  const dE = m.g.E;
+  for (let t = 0; t < T; t++) {
+    const dln = lnBackward(da[t], p.ln1g, ln1[t].cache, g.ln1g, g.ln1b);
+    for (let j = 0; j < d; j++) dE[ids[t]][j] += dh1[t][j] + dln[j];
+  }
+}
+
+function llmZeroGrad(m) { m.g = llmZerosLike(m.p); }
+
+function llmAdamStep(m, lr) {
+  const b1 = 0.9, b2 = 0.999, eps = 1e-8;
+  m.step += 1;
+  const c1 = 1 - Math.pow(b1, m.step);
+  const c2 = 1 - Math.pow(b2, m.step);
+  /* 顶层 m.p 是对象（19 个参数块），数组用索引键、对象用属性键，两类都要走 */
+  const walk = (p, g, mo, vo) => {
+    const keys = Array.isArray(p) ? p.keys() : Object.keys(p);
+    for (const k of keys) {
+      if (Array.isArray(p[k])) { walk(p[k], g[k], mo[k], vo[k]); continue; }
+      const gk = g[k];
+      mo[k] = b1 * mo[k] + (1 - b1) * gk;
+      vo[k] = b2 * vo[k] + (1 - b2) * gk * gk;
+      p[k] -= lr * (mo[k] / c1) / (Math.sqrt(vo[k] / c2) + eps);
+    }
+  };
+  walk(m.p, m.g, m.mo, m.vo);
+}
+
+/* 一次训练步：前向 + 反向 + Adam */
+function llmTrainStep(m, ids, lr) {
+  const { loss, cache } = llmForward(m, ids);
+  llmZeroGrad(m);
+  llmBackward(m, cache);
+  llmAdamStep(m, lr);
+  return loss;
+}
+
+/* 贪心/top-k 采样续写 */
+function llmGenerate(m, ids, n, temperature, topK, rand) {
+  const out = ids.slice();
+  const V = m.cfg.vocabSize;
+  for (let s = 0; s < n; s++) {
+    const ctx = out.slice(Math.max(0, out.length - m.cfg.maxLen));
+    const { logits } = llmForward(m, ctx);
+    let row = logits[logits.length - 1].map(v => v / temperature);
+    if (topK > 0 && topK < V) {
+      const sorted = row.slice().sort((x, y) => y - x);
+      const cut = sorted[topK - 1];
+      row = row.map(v => (v >= cut ? v : -Infinity));
+    }
+    const probs = softmaxRow(row);
+    let u = rand(), pick = V - 1;
+    for (let i = 0; i < V; i++) { u -= probs[i]; if (u <= 0) { pick = i; break; } }
+    out.push(pick);
+  }
+  return out;
+}
+
+  /* ---------------- 面板逻辑 ---------------- */
+  let llmModel = null;          /* 训练好的模型 */
+  let llmChars = [];            /* 字符表（字符级分词，无需 BPE） */
+  let llmBusy = false;
+
+  const $id = id => document.getElementById(id);
+
+  function llmParamCount(m) {
+    let n = 0;
+    const walk = o => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (o && typeof o === "object") { for (const k in o) walk(o[k]); return; }
+      n += 1;
+    };
+    walk(m.p);
+    return n;
+  }
+
+  function llmUI(text, fill) {
+    const t = $id("llmProgressText");
+    if (t) t.textContent = text;
+    if (typeof fill === "number") {
+      const f = $id("llmProgressFill");
+      if (f) f.style.width = Math.max(0, Math.min(100, fill)) + "%";
+    }
+  }
+
+  function llmInt(id, def, lo, hi) {
+    const el = $id(id);
+    const v = parseInt(el && el.value, 10);
+    return Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : def));
+  }
+
+  function llmFloat(id, def, lo, hi) {
+    const el = $id(id);
+    const v = parseFloat(el && el.value);
+    return Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : def));
+  }
+
+  function llmStartTraining() {
+    if (llmBusy) return;
+    const corpusEl = $id("llmCorpus");
+    const chars0 = Array.from(corpusEl ? corpusEl.value : "");
+    if (chars0.length < 4) { llmUI("语料太短：至少 4 个字符"); return; }
+    const chars = Array.from(new Set(chars0));
+    if (chars.length < 2) { llmUI("语料只有一种字符，学不到任何转移"); return; }
+
+    const epochs = llmInt("llmEpochs", 300, 1, 5000);
+    const lr = llmFloat("llmLr", 0.02, 1e-5, 1);
+    let dim = llmInt("llmDim", 16, 4, 64);
+    if (dim % 2 !== 0) dim += 1;              /* heads=2，维度必须是偶数 */
+    const heads = 2, dff = dim * 2;
+    const maxLen = Math.max(2, Math.min(512, chars0.length));
+    const ids = chars0.slice(0, maxLen).map(c => chars.indexOf(c));
+
+    llmModel = llmCreate({
+      vocabSize: chars.length, dModel: dim, heads, dff, maxLen,
+      rand: llmSeedRng((Date.now() & 0x7fffffff) >>> 0),
+    });
+    llmChars = chars;
+
+    llmBusy = true;
+    const trainBtn = $id("llmTrainBtn"), genBtn = $id("llmGenBtn");
+    if (trainBtn) trainBtn.disabled = true;
+    if (genBtn) genBtn.disabled = true;
+
+    const t0 = performance.now();
+    let ep = 0, first = 0, last = 0;
+    const tick = () => {
+      const deadline = performance.now() + 14;   /* 每帧约 14ms，避免卡住界面 */
+      while (ep < epochs && performance.now() < deadline) {
+        last = llmTrainStep(llmModel, ids, lr);
+        if (ep === 0) first = last;
+        ep += 1;
+      }
+      llmUI("训练中 " + ep + "/" + epochs + " · loss " + last.toFixed(5), 100 * ep / epochs);
+      if (ep < epochs) { setTimeout(tick, 0); return; }
+
+      llmBusy = false;
+      if (trainBtn) trainBtn.disabled = false;
+      if (genBtn) genBtn.disabled = false;
+      const secs = ((performance.now() - t0) / 1000).toFixed(2);
+      const stats = $id("llmStats");
+      if (stats) {
+        stats.textContent = "语料 " + chars0.length + " 字 / 词表 " + chars.length +
+          " / 参数 " + llmParamCount(llmModel) + " / " + secs + " s / loss " +
+          first.toFixed(4) + " → " + last.toFixed(5);
+      }
+      llmUI("训练完成 · loss " + last.toFixed(5), 100);
+      llmGenerateOnce();
+    };
+    llmUI("准备训练…", 0);
+    setTimeout(tick, 0);
+  }
+
+  function llmGenerateOnce() {
+    if (llmBusy) { llmUI("正在训练，请稍候"); return; }
+    if (!llmModel) { llmUI("请先训练语言模型"); return; }
+    const promptEl = $id("llmPrompt");
+    const raw = Array.from(promptEl ? promptEl.value : "");
+    let prompt = raw.filter(c => llmChars.indexOf(c) >= 0);
+    if (prompt.length === 0) {
+      prompt = [llmChars[0]];
+      if (promptEl) promptEl.value = llmChars[0];
+    }
+    prompt = prompt.slice(-llmModel.cfg.maxLen);
+
+    const n = llmInt("llmNew", 24, 1, 400);
+    const temp = llmFloat("llmTemp", 0.8, 0.1, 2);
+    const ids = prompt.map(c => llmChars.indexOf(c));
+    const out = llmGenerate(llmModel, ids, n, temp, 0, llmSeedRng((Date.now() & 0x7fffffff) >>> 0));
+    const outEl = $id("llmOut");
+    if (outEl) outEl.textContent = out.map(i => llmChars[i]).join("");
+  }
+
+  (function bindLLMButtons() {
+    const t = $id("llmTrainBtn"), g = $id("llmGenBtn");
+    if (t) t.addEventListener("click", llmStartTraining);
+    if (g) g.addEventListener("click", llmGenerateOnce);
+    if (g) g.disabled = true;
+  })();
+})();
 
 </script>
 </body>
