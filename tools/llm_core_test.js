@@ -239,6 +239,44 @@ async function run() {
   }
   r.ok("7 种非法存档全部被拒绝并带清晰信息", badOk === badCases.length, badOk + "/" + badCases.length);
 
+  /* ---- 输入校验：非法输入必须报错，而不是静默算出 NaN ---- */
+  r.note("输入校验（对齐 Python 版审计 F1/F6/F7）：");
+  const vm = L.llmCreate({ vocabSize: 5, dModel: 8, heads: 2, dff: 16, maxLen: 6, seed: 7, window: 0 });
+  function throwsMsg(fn, needle, label) {
+    try {
+      fn();
+      r.note("FAIL " + label + "：没有报错");
+      return false;
+    } catch (e) {
+      const hit = e instanceof Error && e.message.indexOf(needle) >= 0;
+      if (!hit) r.note("FAIL " + label + "：信息未含「" + needle + "」→ " + e.message);
+      return hit;
+    }
+  }
+
+  let idCase = 0;
+  for (const bad of [5, -1, 1.5]) {
+    if (throwsMsg(() => L.llmForward(vm, [1, 2, bad]), "token id", "非法 id " + bad)) idCase++;
+  }
+  r.ok("越界/负数/非整数 token id 都报错", idCase === 3, idCase + "/3");
+
+  r.ok("整行 -Infinity 的 softmax 返回全 0 而不是 NaN",
+    eqArr(L.softmaxRow([-Infinity, -Infinity, -Infinity]), [0, 0, 0]));
+
+  const vnan = L.llmCreate({ vocabSize: 5, dModel: 8, heads: 2, dff: 16, maxLen: 6, seed: 7, window: 0 });
+  vnan.p.Wout[0][0] = NaN;
+  r.ok("权重含 NaN 时前向报错（不再把 NaN loss 当正常值）",
+    throwsMsg(() => L.llmForward(vnan, [1, 2, 3]), "NaN", "NaN 权重"));
+
+  r.ok("temperature<=0 报错",
+    throwsMsg(() => L.llmGenerate(vm, [1], 2, 0, 0, () => 0.5, 1), "temperature", "temp=0"));
+  r.ok("top_p 越界报错",
+    throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 1.5), "top_p", "top_p=1.5") &&
+    throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 0), "top_p", "top_p=0"));
+
+  r.ok("合法参数照常生成（top_p 省略 = 不过滤）",
+    L.llmGenerate(vm, [1], 3, 1.0, 1, () => 0.5).length === 4);
+
   return { checks: r.checks, failures: r.failures };
 }
 

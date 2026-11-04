@@ -4716,6 +4716,9 @@ function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b
 function softmaxRow(row) {
   let mx = -Infinity;
   for (let i = 0; i < row.length; i++) if (row[i] > mx) mx = row[i];
+  /* 整行都是 -Infinity（整行被掩码掉）时 exp(-Infinity - -Infinity) 是 NaN；
+     与 Python 的 _softmax_row 一致，返回全 0。 */
+  if (mx === -Infinity) return new Array(row.length).fill(0);
   const ex = row.map(v => Math.exp(v - mx));
   let sum = 0;
   for (let i = 0; i < ex.length; i++) sum += ex[i];
@@ -4755,6 +4758,12 @@ function llmForward(m, ids) {
   const T = ids.length;
   if (T < 1) throw new Error("至少 1 个 token");
   if (T > m.cfg.maxLen) throw new Error("序列超过 maxLen");
+  for (let t = 0; t < T; t++) {
+    const id = ids[t];
+    if (!Number.isInteger(id) || id < 0 || id >= V) {
+      throw new Error("第 " + t + " 个 token id 非法（" + id + "），必须在 [0, " + V + ") 内");
+    }
+  }
   const p = m.p;
 
   const x0 = ids.map((id, t) => addVec(p.E[id], m.PE[t]));
@@ -4809,6 +4818,15 @@ function llmForward(m, ids) {
   const h2 = h1.map((v, i) => addVec(v, fout[i]));
 
   const logits = h2.map(hv => addVec(mv(p.Wout, hv), p.bout));
+  /* 权重里混进 NaN/Inf 时 logits 会是 NaN，loss 变成 NaN、Adam 随后把整个模型
+     写坏。这里直接报错，别让它静默训练下去。 */
+  for (let t = 0; t < T; t++) {
+    for (let v = 0; v < V; v++) {
+      if (!Number.isFinite(logits[t][v])) {
+        throw new Error("第 " + t + " 行 logits 含 NaN/Inf（参数可能已损坏）");
+      }
+    }
+  }
   const nPred = Math.max(1, T - 1);      /* T=1 只取 logits，没有预测位 */
   let loss = 0;
   for (let t = 0; t < T - 1; t++) {
@@ -5008,7 +5026,16 @@ function llmSampleToken(logits, temperature, topK, topP, rand) {
 /* 贪心/top-k/top-p 采样续写（topP 省略或 1.0 = 旧行为） */
 function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
   const out = ids.slice();
-  const tp = Number.isFinite(topP) && topP > 0 ? Math.min(1, topP) : 1;
+  if (temperature !== undefined && !(Number.isFinite(temperature) && temperature > 0)) {
+    throw new Error("temperature 必须 > 0（收到 " + temperature + "）");
+  }
+  let tp = 1;
+  if (topP !== undefined && topP !== null) {
+    if (!(Number.isFinite(topP) && topP > 0 && topP <= 1)) {
+      throw new Error("top_p 必须在 (0, 1] 内（收到 " + topP + "）");
+    }
+    tp = Math.min(1, topP);
+  }
   for (let s = 0; s < n; s++) {
     const ctx = out.slice(Math.max(0, out.length - m.cfg.maxLen));
     const { logits } = llmForward(m, ctx);
