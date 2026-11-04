@@ -1370,7 +1370,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
   <!-- 因果语言模型（字符级 GPT） -->
   <div class="llm-panel" id="llmPanel">
     <h3>🤖 因果语言模型（字符级 GPT）</h3>
-    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。</div>
+    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。支持滑动窗口注意力与 nucleus（top_p）采样。</div>
     <div class="llm-grid">
       <div class="llm-col">
         <label class="llm-label" for="llmCorpus">训练语料（越规律越容易学）</label>
@@ -1379,6 +1379,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
           <span class="llm-num"><label for="llmEpochs">轮数</label><input type="number" id="llmEpochs" value="300" min="1" max="5000"></span>
           <span class="llm-num"><label for="llmLr">学习率</label><input type="number" id="llmLr" value="0.02" step="0.005" min="0.0001" max="1"></span>
           <span class="llm-num"><label for="llmDim">模型维度</label><input type="number" id="llmDim" value="16" step="4" min="4" max="64"></span>
+          <span class="llm-num"><label for="llmWindow">窗口</label><input type="number" id="llmWindow" value="0" step="1" min="0" max="512" title="0 = 全注意力（能看左边所有字符）；n ≥ 1 = 每个位置只看最近 n 个位置"></span>
         </div>
         <button class="btn" id="llmTrainBtn">▶ 训练语言模型</button>
         <div class="progress-wrap">
@@ -1392,6 +1393,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
         <div class="llm-row">
           <span class="llm-num"><label for="llmNew">续写长度</label><input type="number" id="llmNew" value="24" min="1" max="400"></span>
           <span class="llm-num"><label for="llmTemp">温度</label><input type="number" id="llmTemp" value="0.8" step="0.1" min="0.1" max="2"></span>
+          <span class="llm-num"><label for="llmTopP">top_p</label><input type="number" id="llmTopP" value="1.0" step="0.05" min="0.1" max="1" title="nucleus 采样：只保留累计概率达到 top_p 的最小头部集合；1.0 = 不过滤"></span>
         </div>
         <button class="btn" id="llmGenBtn" disabled>✨ 续写</button>
         <div class="llm-out-label">生成结果</div>
@@ -4659,6 +4661,8 @@ function llmCreate(cfg) {
   const T = cfg.maxLen, rand = cfg.rand || Math.random;
   if (V < 2 || d < 2 || F < 1 || T < 2) throw new Error("LLM 配置非法");
   if (d % H !== 0) throw new Error("d_model 必须能被头数整除");
+  const win = cfg.window === undefined || cfg.window === null ? 0 : cfg.window;
+  if (!Number.isInteger(win) || win < 0) throw new Error("窗口必须是非负整数（0 = 全注意力）");
 
   const p = {
     E: llmGaussMat(V, d, rand, 0.1),
@@ -4674,7 +4678,7 @@ function llmCreate(cfg) {
     Wout: llmGaussMat(V, d, rand, Math.sqrt(2 / d)), bout: llmZeros([V]),
   };
   return {
-    cfg: { vocabSize: V, dModel: d, heads: H, dff: F, maxLen: T, dh: d / H },
+    cfg: { vocabSize: V, dModel: d, heads: H, dff: F, maxLen: T, dh: d / H, window: win },
     p, g: llmZerosLike(p), mo: llmZerosLike(p), vo: llmZerosLike(p),
     PE: llmPosTable(T, d), step: 0,
   };
@@ -4756,6 +4760,7 @@ function llmForward(m, ids) {
   const vv = a.map(v => addVec(mv(p.Wv, v), p.bv));
 
   const scale = Math.sqrt(dh);
+  const win = m.cfg.window | 0;     /* 0 = 全注意力；w ≥ 1 = 每个位置只看最近 w 个 */
   const attn = [], headOut = [];
   for (let h = 0; h < H; h++) {
     const off = h * dh;
@@ -4765,7 +4770,8 @@ function llmForward(m, ids) {
     const aw = [];
     for (let i = 0; i < T; i++) {
       const row = new Array(T).fill(-Infinity);
-      for (let j = 0; j <= i; j++) row[j] = dot(qh[i], kh[j]) / scale;
+      const lo = win > 0 ? Math.max(0, i - win + 1) : 0;   /* 窗口外的更早位置也屏蔽 */
+      for (let j = lo; j <= i; j++) row[j] = dot(qh[i], kh[j]) / scale;
       aw.push(softmaxRow(row));      /* exp(-Infinity) = 0：mask 位置权重恰为 0 */
     }
     const out = [];
@@ -4879,7 +4885,9 @@ function llmBackward(m, cache) {
 
   for (let h = 0; h < H; h++) {
     const off = h * dh;
-    /* 每头的 dO 切片；先算 dattn 与 dv */
+    /* 每头的 dO 切片；先算 dattn 与 dv
+       因果/窗口掩码之外的 attn 恰为 0，dattn 与 softmax 反传在这些位置自然为 0，
+       所以这里仍遍历 0..t，不需要额外分支（与 Python 版同一套论证） */
     const dO = dconcat.map(row => row.slice(off, off + dh));
     const dattn = Array.from({ length: T }, () => new Array(T).fill(0));
     for (let t = 0; t < T; t++) {
@@ -4897,9 +4905,6 @@ function llmBackward(m, cache) {
         for (let u = 0; u < dh; u++) {
           dq[t][off + u] += ds * k[j][off + u];   /* q_t 对 key j 求导，不是 key t */
           dk[j][off + u] += ds * q[t][off + u];
-          if (globalThis.__TRACE && h === 0 && t === 1) {
-            console.error("t=1 j=" + j + " u=" + u + " ds=" + ds + " k=" + k[t][off + u] + " dqnow=" + dq[1][off + u] + " q=" + q[t][off + u] + " dknow=" + dk[j][off + u]);
-          }
         }
       }
     }
@@ -4962,23 +4967,47 @@ function llmTrainStep(m, ids, lr) {
   return loss;
 }
 
-/* 贪心/top-k 采样续写 */
-function llmGenerate(m, ids, n, temperature, topK, rand) {
+/* 从一行 logits 采一个 token：top-k / nucleus(top_p) 过滤 + 温度缩放 + 累积分布采样。
+   top_p = 1.0（默认）时完全走旧路径，逐位不变。 */
+function llmSampleToken(logits, temperature, topK, topP, rand) {
+  const V = logits.length;
+  const temp = temperature > 0 ? temperature : 1;
+  let row = logits.map(v => v / temp);
+  if (topK > 0 && topK < V) {
+    const sorted = row.slice().sort((x, y) => y - x);
+    const cut = sorted[topK - 1];
+    row = row.map(v => (v >= cut ? v : -Infinity));
+  }
+  if (topP > 0 && topP < 1) {
+    /* nucleus：按温度缩放后的概率从高到低累加，保留累计概率刚好覆盖 top_p 的头部 */
+    const probs0 = softmaxRow(row);
+    const order = new Array(V);
+    for (let i = 0; i < V; i++) order[i] = i;
+    order.sort((a, b) => (probs0[b] - probs0[a]) || (a - b));
+    const keep = new Array(V).fill(false);
+    let acc = 0;
+    for (let k = 0; k < V; k++) {
+      const i = order[k];
+      keep[i] = true;
+      acc += probs0[i];
+      if (acc >= topP) break;
+    }
+    row = row.map((v, i) => (keep[i] ? v : -Infinity));
+  }
+  const probs = softmaxRow(row);
+  let u = rand(), pick = V - 1;
+  for (let i = 0; i < V; i++) { u -= probs[i]; if (u <= 0) { pick = i; break; } }
+  return pick;
+}
+
+/* 贪心/top-k/top-p 采样续写（topP 省略或 1.0 = 旧行为） */
+function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
   const out = ids.slice();
-  const V = m.cfg.vocabSize;
+  const tp = Number.isFinite(topP) && topP > 0 ? Math.min(1, topP) : 1;
   for (let s = 0; s < n; s++) {
     const ctx = out.slice(Math.max(0, out.length - m.cfg.maxLen));
     const { logits } = llmForward(m, ctx);
-    let row = logits[logits.length - 1].map(v => v / temperature);
-    if (topK > 0 && topK < V) {
-      const sorted = row.slice().sort((x, y) => y - x);
-      const cut = sorted[topK - 1];
-      row = row.map(v => (v >= cut ? v : -Infinity));
-    }
-    const probs = softmaxRow(row);
-    let u = rand(), pick = V - 1;
-    for (let i = 0; i < V; i++) { u -= probs[i]; if (u <= 0) { pick = i; break; } }
-    out.push(pick);
+    out.push(llmSampleToken(logits[logits.length - 1], temperature, topK, tp, rand));
   }
   return out;
 }
@@ -5022,6 +5051,17 @@ function llmGenerate(m, ids, n, temperature, topK, rand) {
     return Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : def));
   }
 
+  /* 窗口：0 = 全注意力；非整数 / 负数按非法输入报错（不静默钳位） */
+  function llmReadWindow() {
+    const el = $id("llmWindow");
+    if (!el) return 0;                   /* 旧页面没有该输入：退回全注意力 */
+    const raw = String(el.value == null ? "" : el.value).trim();
+    if (raw === "") return 0;
+    const v = Number(raw);
+    if (!Number.isInteger(v) || v < 0) throw new Error("窗口必须是非负整数（0 = 全注意力）");
+    return v;
+  }
+
   function llmStartTraining() {
     if (llmBusy) return;
     const corpusEl = $id("llmCorpus");
@@ -5033,13 +5073,15 @@ function llmGenerate(m, ids, n, temperature, topK, rand) {
     const epochs = llmInt("llmEpochs", 300, 1, 5000);
     const lr = llmFloat("llmLr", 0.02, 1e-5, 1);
     let dim = llmInt("llmDim", 16, 4, 64);
+    let win;
+    try { win = llmReadWindow(); } catch (e) { llmUI(e.message); return; }
     if (dim % 2 !== 0) dim += 1;              /* heads=2，维度必须是偶数 */
     const heads = 2, dff = dim * 2;
     const maxLen = Math.max(2, Math.min(512, chars0.length));
     const ids = chars0.slice(0, maxLen).map(c => chars.indexOf(c));
 
     llmModel = llmCreate({
-      vocabSize: chars.length, dModel: dim, heads, dff, maxLen,
+      vocabSize: chars.length, dModel: dim, heads, dff, maxLen, window: win,
       rand: llmSeedRng((Date.now() & 0x7fffffff) >>> 0),
     });
     llmChars = chars;
@@ -5068,7 +5110,8 @@ function llmGenerate(m, ids, n, temperature, topK, rand) {
       const stats = $id("llmStats");
       if (stats) {
         stats.textContent = "语料 " + chars0.length + " 字 / 词表 " + chars.length +
-          " / 参数 " + llmParamCount(llmModel) + " / " + secs + " s / loss " +
+          " / 参数 " + llmParamCount(llmModel) +
+          " / 窗口 " + (win === 0 ? "全" : win) + " / " + secs + " s / loss " +
           first.toFixed(4) + " → " + last.toFixed(5);
       }
       llmUI("训练完成 · loss " + last.toFixed(5), 100);
@@ -5092,8 +5135,10 @@ function llmGenerate(m, ids, n, temperature, topK, rand) {
 
     const n = llmInt("llmNew", 24, 1, 400);
     const temp = llmFloat("llmTemp", 0.8, 0.1, 2);
+    const topP = llmFloat("llmTopP", 1, 0.1, 1);
     const ids = prompt.map(c => llmChars.indexOf(c));
-    const out = llmGenerate(llmModel, ids, n, temp, 0, llmSeedRng((Date.now() & 0x7fffffff) >>> 0));
+    const out = llmGenerate(llmModel, ids, n, temp, 0,
+      llmSeedRng((Date.now() & 0x7fffffff) >>> 0), topP);
     const outEl = $id("llmOut");
     if (outEl) outEl.textContent = out.map(i => llmChars[i]).join("");
   }
