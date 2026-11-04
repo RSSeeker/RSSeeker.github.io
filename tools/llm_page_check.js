@@ -65,7 +65,12 @@ async function run() {
 
   r.section("1. 文件基本属性");
   r.ok("index.html 非空", html.length > 100000, html.length + " 字符");
-  r.ok("行尾仍为 LF（无 CRLF）", html.indexOf("\r\n") < 0);
+  /* 不要求必须是 LF：Windows 上 core.autocrlf=true 的克隆会得到 CRLF，
+     页面在两种行尾下行为一致。只拒绝混用，避免 diff/行号工具出错。 */
+  const crlfCount = (html.match(/\r\n/g) || []).length;
+  const lfOnlyCount = (html.match(/\n/g) || []).length - crlfCount;
+  r.ok("行尾风格一致（无 LF/CRLF 混用）", crlfCount === 0 || lfOnlyCount === 0,
+    crlfCount + " 个 CRLF / " + lfOnlyCount + " 个单 LF");
 
   /* ---------- 2. 每个内联 <script> 单独过语法编译 ---------- */
   r.section("2. 内联脚本语法");
