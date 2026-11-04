@@ -1370,7 +1370,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
   <!-- 因果语言模型（字符级 GPT） -->
   <div class="llm-panel" id="llmPanel">
     <h3>🤖 因果语言模型（字符级 GPT）</h3>
-    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。支持滑动窗口注意力与 nucleus（top_p）采样。</div>
+    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。支持滑动窗口注意力、nucleus（top_p）采样，训练后可保存 / 加载模型 JSON。</div>
     <div class="llm-grid">
       <div class="llm-col">
         <label class="llm-label" for="llmCorpus">训练语料（越规律越容易学）</label>
@@ -1399,6 +1399,11 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
         <div class="llm-out-label">生成结果</div>
         <div class="llm-out" id="llmOut">（先训练，再点续写）</div>
         <div class="llm-stats" id="llmStats"></div>
+        <div class="btn-row">
+          <button class="btn" id="llmSaveBtn" disabled>💾 保存模型</button>
+          <button class="btn" id="llmLoadBtn">📂 加载模型</button>
+          <input type="file" id="llmLoadFile" accept=".json,application/json" style="display:none">
+        </div>
       </div>
     </div>
   </div>
@@ -5012,6 +5017,106 @@ function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
   return out;
 }
 
+/* 困惑度 = exp(平均交叉熵)；loss > 700 时 exp 会溢出，与 Python 版一样给 inf */
+function llmPerplexity(loss) {
+  if (!(loss >= 0) || loss > 700) return Infinity;
+  return Math.exp(loss);
+}
+
+/* ---------------- 模型存档（JSON：format + config + 词表 + 参数） ---------------- */
+const LLM_WEB_FORMAT = "llm_web_v1";
+
+function llmExportModel(m, vocab) {
+  return {
+    format: LLM_WEB_FORMAT,
+    config: {
+      vocabSize: m.cfg.vocabSize, dModel: m.cfg.dModel, heads: m.cfg.heads,
+      dff: m.cfg.dff, maxLen: m.cfg.maxLen, window: m.cfg.window | 0,
+    },
+    vocab: vocab.slice(),
+    params: JSON.parse(JSON.stringify(m.p)),   /* 深拷贝，之后继续训练不影响已存档数据 */
+  };
+}
+
+function llmConfigInt(v, lo, hi, name) {
+  if (!Number.isInteger(v) || v < lo || v > hi) {
+    throw new Error(name + " 必须是 " + lo + "~" + hi + " 的整数");
+  }
+  return v;
+}
+
+/* 按模板的形状逐项拷贝参数：多出来的键忽略，缺键 / 形状不符 / 非有限数值都报错 */
+function llmCopyParams(tmpl, src, path) {
+  if (Array.isArray(tmpl)) {
+    if (!Array.isArray(src) || src.length !== tmpl.length) {
+      throw new Error("参数形状不匹配：" + path + "（应为长度 " + tmpl.length + " 的数组）");
+    }
+    const out = new Array(tmpl.length);
+    for (let i = 0; i < tmpl.length; i++) out[i] = llmCopyParams(tmpl[i], src[i], path + "[" + i + "]");
+    return out;
+  }
+  if (tmpl && typeof tmpl === "object") {
+    if (!src || typeof src !== "object" || Array.isArray(src)) {
+      throw new Error("参数形状不匹配：" + path + "（应为对象）");
+    }
+    const out = {};
+    for (const k in tmpl) {
+      if (!Object.prototype.hasOwnProperty.call(src, k)) throw new Error("参数缺失：" + path + "." + k);
+      out[k] = llmCopyParams(tmpl[k], src[k], path + "." + k);
+    }
+    return out;
+  }
+  if (typeof src !== "number" || !isFinite(src)) {
+    throw new Error("参数不是有限数值：" + path);
+  }
+  return src;
+}
+
+/* 校验并还原模型；任何不合法都抛 Error（面板负责显示成中文提示） */
+function llmImportModel(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) throw new Error("文件内容不是模型对象");
+  if (obj.format !== LLM_WEB_FORMAT) {
+    throw new Error("文件格式不匹配：需要 format=\"" + LLM_WEB_FORMAT + "\"");
+  }
+  const c = obj.config;
+  if (!c || typeof c !== "object") throw new Error("缺少 config");
+  const cfg = {
+    vocabSize: llmConfigInt(c.vocabSize, 2, 4096, "config.vocabSize"),
+    dModel: llmConfigInt(c.dModel, 2, 512, "config.dModel"),
+    heads: llmConfigInt(c.heads, 1, 16, "config.heads"),
+    dff: llmConfigInt(c.dff, 1, 4096, "config.dff"),
+    maxLen: llmConfigInt(c.maxLen, 2, 2048, "config.maxLen"),
+    window: llmConfigInt(c.window === undefined ? 0 : c.window, 0, 1000000, "config.window"),
+  };
+  if (cfg.dModel % cfg.heads !== 0) throw new Error("config.dModel 不能被 config.heads 整除");
+
+  const vocab = obj.vocab;
+  if (!Array.isArray(vocab) || vocab.length !== cfg.vocabSize) {
+    throw new Error("词表长度与 config.vocabSize 不一致");
+  }
+  const seen = Object.create(null);
+  for (let i = 0; i < vocab.length; i++) {
+    const ch = vocab[i];
+    if (typeof ch !== "string" || Array.from(ch).length !== 1) {
+      throw new Error("词表第 " + (i + 1) + " 项不是单个字符");
+    }
+    if (seen[ch]) throw new Error("词表有重复字符：" + ch);
+    seen[ch] = true;
+  }
+
+  if (!obj.params || typeof obj.params !== "object") throw new Error("缺少 params");
+  const m = llmCreate({
+    vocabSize: cfg.vocabSize, dModel: cfg.dModel, heads: cfg.heads,
+    dff: cfg.dff, maxLen: cfg.maxLen, window: cfg.window, rand: llmSeedRng(1),
+  });
+  m.p = llmCopyParams(m.p, obj.params, "params");
+  m.g = llmZerosLike(m.p);
+  m.mo = llmZerosLike(m.p);
+  m.vo = llmZerosLike(m.p);
+  m.step = 0;
+  return { model: m, vocab: vocab.slice() };
+}
+
   /* ---------------- 面板逻辑 ---------------- */
   let llmModel = null;          /* 训练好的模型 */
   let llmChars = [];            /* 字符表（字符级分词，无需 BPE） */
@@ -5106,15 +5211,20 @@ function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
       llmBusy = false;
       if (trainBtn) trainBtn.disabled = false;
       if (genBtn) genBtn.disabled = false;
+      const saveBtn = $id("llmSaveBtn");
+      if (saveBtn) saveBtn.disabled = false;
+      const finalLoss = llmForward(llmModel, ids).loss;   /* 用训练后的权重复算平均交叉熵 */
+      const ppl = llmPerplexity(finalLoss);
+      const pplText = isFinite(ppl) ? ppl.toFixed(4) : "inf";
       const secs = ((performance.now() - t0) / 1000).toFixed(2);
       const stats = $id("llmStats");
       if (stats) {
         stats.textContent = "语料 " + chars0.length + " 字 / 词表 " + chars.length +
-          " / 参数 " + llmParamCount(llmModel) +
+          " / 参数 " + llmParamCount(llmModel) + " / 困惑度 " + pplText +
           " / 窗口 " + (win === 0 ? "全" : win) + " / " + secs + " s / loss " +
-          first.toFixed(4) + " → " + last.toFixed(5);
+          first.toFixed(4) + " → " + finalLoss.toFixed(5);
       }
-      llmUI("训练完成 · loss " + last.toFixed(5), 100);
+      llmUI("训练完成 · loss " + finalLoss.toFixed(5) + " · 困惑度 " + pplText, 100);
       llmGenerateOnce();
     };
     llmUI("准备训练…", 0);
@@ -5143,11 +5253,76 @@ function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
     if (outEl) outEl.textContent = out.map(i => llmChars[i]).join("");
   }
 
+  function llmSaveModel() {
+    if (llmBusy) { llmUI("正在训练，请稍候"); return; }
+    if (!llmModel) { llmUI("请先训练语言模型"); return; }
+    try {
+      const json = JSON.stringify(llmExportModel(llmModel, llmChars));
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "llm_model_" + llmChars.length + "vocab_" + Date.now() + ".json";
+      if (document.body) document.body.appendChild(a);
+      a.click();
+      if (document.body && a.parentNode) document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      llmUI("模型已保存（词表 " + llmChars.length + " 字 / 参数 " +
+        llmParamCount(llmModel) + " 个）");
+    } catch (e) {
+      llmUI("保存失败：" + (e && e.message ? e.message : e));
+    }
+  }
+
+  function llmLoadModelFile(file) {
+    if (!file) return;
+    if (llmBusy) { llmUI("正在训练，请稍候"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      let obj;
+      try {
+        obj = JSON.parse(String(reader.result));
+      } catch (e) {
+        llmUI("加载失败：文件不是合法 JSON");
+        return;
+      }
+      let loaded;
+      try {
+        loaded = llmImportModel(obj);
+      } catch (e) {
+        llmUI("加载失败：" + (e && e.message ? e.message : e));
+        return;
+      }
+      llmModel = loaded.model;
+      llmChars = loaded.vocab;
+      const genBtn = $id("llmGenBtn"), saveBtn = $id("llmSaveBtn");
+      if (genBtn) genBtn.disabled = false;
+      if (saveBtn) saveBtn.disabled = false;
+      const stats = $id("llmStats");
+      if (stats) {
+        stats.textContent = "已加载模型 / 词表 " + llmChars.length + " / 参数 " +
+          llmParamCount(llmModel) + " / 窗口 " +
+          (llmModel.cfg.window === 0 ? "全" : llmModel.cfg.window);
+      }
+      llmUI("模型已加载，可点「续写」");
+    };
+    reader.onerror = () => llmUI("加载失败：读取文件出错");
+    reader.readAsText(file);
+  }
+
   (function bindLLMButtons() {
     const t = $id("llmTrainBtn"), g = $id("llmGenBtn");
+    const sv = $id("llmSaveBtn"), ld = $id("llmLoadBtn"), lf = $id("llmLoadFile");
     if (t) t.addEventListener("click", llmStartTraining);
     if (g) g.addEventListener("click", llmGenerateOnce);
     if (g) g.disabled = true;
+    if (sv) { sv.disabled = true; sv.addEventListener("click", llmSaveModel); }
+    if (ld && lf) ld.addEventListener("click", () => { if (lf.click) lf.click(); });
+    if (lf) lf.addEventListener("change", () => {
+      const f = lf.files && lf.files[0];
+      if (f) llmLoadModelFile(f);
+      lf.value = "";                        /* 允许再次选择同一个文件 */
+    });
   })();
 })();
 
