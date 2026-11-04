@@ -93,9 +93,51 @@
 
 所有运算均在浏览器本地完成，数据不会上传到任何服务器。
 
+## 本地校验
+
+仓库自带的 Node 校验脚本只用于开发回归，**不参与页面运行**：`index.html` 仍然是零依赖单文件，直接双击打开即可，`tools/` 不会被页面加载。需要 Node 18+。
+
+一条命令跑完全部检查：
+
+```bash
+node tools/check.js
+```
+
+全部通过时最后一行固定为 `ALL PASS (N checks)`，退出码 0；任何一项失败都会打印 `FAIL` 行并以非 0 退出。也可以单独运行某一套：
+
+```bash
+node tools/llm_core_test.js   # 只跑 LLM 核心数值
+node tools/llm_page_check.js  # 只跑页面结构与伪 DOM
+```
+
+覆盖范围：
+
+- **LLM 核心数值**（`tools/llm_core_test.js`）：`tools/extract_page_js.js` 每次运行都从 `index.html` 现场抽出内联的 LLM 核心函数再执行，测的就是页面里的实现，不存在第二份拷贝。
+  - 与 `tools/fixtures/llm_baseline.json` 逐位对比 20 步训练 loss、前向 loss / logits、三种生成序列（旧 6 参数调用、显式 `top_p=1`、`window=0`）；
+  - nucleus 采样：`top_p=0.5` 只保留最高概率 token、`0.8` 保留前两名丢掉尾部、`top_p=1` 与旧采样在 100 组随机 logits 上逐位一致；
+  - 滑动窗口：`window=2` 的因果性（改末位不影响前文）、`window=1` 只看自己、非法窗口被拒绝；
+  - 中心有限差分梯度：`window=0` / `window=2` 各取 10 个参数，最差相对误差 ≤ 1e-8；
+  - 困惑度 = `exp(平均交叉熵)`，`loss > 700` 给 `inf`；
+  - 存档往返：JSON 写读后参数 / 配置 / 词表逐位一致、生成一致；7 种非法存档都被拒绝并带中文错误。
+- **页面结构与 DOM 契约**（`tools/llm_page_check.js`）：
+  - 两段内联 `<script>` 分别编译通过；
+  - `div/span/button/textarea/table/select/option` 标签配平；
+  - 所有 `id` 唯一，`$id(...)` / `document.getElementById` 引用的元素都存在；
+  - 在伪 DOM 中真正执行页面的 LLM 面板 IIFE，跑通「训练 → 自动生成 → `top_p=0.5` 再生成 → 保存为 Blob → 非法 JSON 报错 → 加载存档 → 继续生成」，并验证窗口输入 `1.5` 报错、缺少 `#llmWindow` 时退回全注意力。
+
+`tools/fixtures/llm_baseline.json` 是引入 nucleus 采样 / 滑动窗口之前的旧实现黄金基线。除非**有意**修改数值算法，否则不要重新生成它；如果确实要改，请在提交信息里写明原因。
+
 ## 文件结构
 
 ```
-├── index.html    # 全部代码与 UI（单文件）
-└── README.md
+├── index.html                   # 全部页面代码与 UI（单文件，运行时零依赖）
+├── README.md
+└── tools/                       # 开发期本地校验，不参与页面运行
+    ├── check.js                 # 入口：node tools/check.js
+    ├── extract_page_js.js       # 从 index.html 抽取内联脚本 / LLM 核心，提供伪 DOM
+    ├── report.js                # PASS/FAIL 计数与汇总
+    ├── llm_core_test.js         # LLM 核心数值检查
+    ├── llm_page_check.js        # 页面结构与伪 DOM 集成检查
+    └── fixtures/
+        └── llm_baseline.json    # 旧实现黄金基线（逐位对比用）
 ```
