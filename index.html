@@ -1370,7 +1370,7 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
   <!-- 因果语言模型（字符级 GPT） -->
   <div class="llm-panel" id="llmPanel">
     <h3>🤖 因果语言模型（字符级 GPT）</h3>
-    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。支持滑动窗口注意力、nucleus（top_p）采样，训练后可保存 / 加载模型 JSON。</div>
+    <div class="llm-hint">单层因果 Transformer：词向量 + 正弦位置编码 + 掩码自注意力 + 前馈网络 + 残差 LayerNorm。只看左边的字符预测下一个，跟真正的 GPT 是同一套掩码机制，只是小得多。支持滑动窗口注意力、nucleus（top_p）与 min_p 采样、重复 / 存在 / 频率惩罚、禁重复 n-gram；训练后可保存 / 加载模型 JSON。</div>
     <div class="llm-grid">
       <div class="llm-col">
         <label class="llm-label" for="llmCorpus">训练语料（越规律越容易学）</label>
@@ -1394,6 +1394,15 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
           <span class="llm-num"><label for="llmNew">续写长度</label><input type="number" id="llmNew" value="24" min="1" max="400"></span>
           <span class="llm-num"><label for="llmTemp">温度</label><input type="number" id="llmTemp" value="0.8" step="0.1" min="0.1" max="2"></span>
           <span class="llm-num"><label for="llmTopP">top_p</label><input type="number" id="llmTopP" value="1.0" step="0.05" min="0.1" max="1" title="nucleus 采样：只保留累计概率达到 top_p 的最小头部集合；1.0 = 不过滤"></span>
+        </div>
+        <div class="llm-row">
+          <span class="llm-num"><label for="llmMinP">min_p</label><input type="number" id="llmMinP" value="0" step="0.01" min="0" max="0.99" title="min_p 采样：top_k / top_p 之后丢掉概率低于 min_p × 最大概率的 token；0 = 关闭"></span>
+          <span class="llm-num"><label for="llmRepPenalty">重复惩罚</label><input type="number" id="llmRepPenalty" value="1" step="0.05" min="0.05" max="10" title="repetition_penalty：已出现 token 的正 logit 除以它、非正 logit 乘以它；1 = 关闭"></span>
+          <span class="llm-num"><label for="llmPresence">存在惩罚</label><input type="number" id="llmPresence" value="0" step="0.1" min="-2" max="2" title="presence_penalty：出现过的 token 的 logit 扣一次；0 = 关闭"></span>
+        </div>
+        <div class="llm-row">
+          <span class="llm-num"><label for="llmFrequency">频率惩罚</label><input type="number" id="llmFrequency" value="0" step="0.1" min="-2" max="2" title="frequency_penalty：按出现次数扣 logit；0 = 关闭"></span>
+          <span class="llm-num"><label for="llmNgram">禁重复 n-gram</label><input type="number" id="llmNgram" value="0" step="1" min="0" max="8" title="no_repeat_ngram_size：最近 n-1 个 token 之后禁止再出现相同的 n-gram 后继；0 = 关闭，1 非法"></span>
         </div>
         <button class="btn" id="llmGenBtn" disabled>✨ 续写</button>
         <div class="llm-out-label">生成结果</div>
@@ -4990,9 +4999,114 @@ function llmTrainStep(m, ids, lr) {
   return loss;
 }
 
-/* 从一行 logits 采一个 token：top-k / nucleus(top_p) 过滤 + 温度缩放 + 累积分布采样。
-   top_p = 1.0（默认）时完全走旧路径，逐位不变。 */
-function llmSampleToken(logits, temperature, topK, topP, rand) {
+/* ---------------- 生成采样控制（min_p / 惩罚 / 禁重复 n-gram） ----------------
+   语义与 Python 版 _apply_generation_penalties / _mask_min_p 一致，只做增量：
+   默认值全为中性（minP=0、repetitionPenalty=1、presence/frequency=0、ngram=0），
+   此时 llmApplyPenalties 原样返回 logits，采样路径与旧版逐位相同。
+   JS 侧用 camelCase，与 Python 参数的对应关系见 README「采样控制」。 */
+function llmGenOptions(opts) {
+  const o = opts === undefined || opts === null ? {} : opts;
+  if (typeof o !== "object" || Array.isArray(o)) {
+    throw new Error("生成参数必须是对象（收到 " + String(o) + "）");
+  }
+  const pick = (key, def) => (o[key] === undefined || o[key] === null ? def : o[key]);
+  const finite = (key, def, label) => {
+    const v = pick(key, def);
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      throw new Error(label + " 必须是有限数值（收到 " + String(v) + "）");
+    }
+    return v;
+  };
+  const minP = finite("minP", 0, "min_p");
+  if (minP < 0 || minP >= 1) {
+    throw new Error("min_p 必须在 [0,1) 内（收到 " + minP + "）");
+  }
+  const repetitionPenalty = finite("repetitionPenalty", 1, "repetition_penalty");
+  if (!(repetitionPenalty > 0)) {
+    throw new Error("repetition_penalty 必须 > 0（收到 " + repetitionPenalty + "）");
+  }
+  const presencePenalty = finite("presencePenalty", 0, "presence_penalty");
+  const frequencyPenalty = finite("frequencyPenalty", 0, "frequency_penalty");
+  const ngram = pick("noRepeatNgramSize", 0);
+  if (typeof ngram !== "number" || !Number.isInteger(ngram) || ngram < 0) {
+    throw new Error("no_repeat_ngram_size 必须是 >= 0 的整数（收到 " + String(ngram) + "）");
+  }
+  if (ngram === 1) {
+    throw new Error("no_repeat_ngram_size=1 没有意义（会禁用所有已出现 token）");
+  }
+  return {
+    minP, repetitionPenalty, presencePenalty, frequencyPenalty,
+    noRepeatNgramSize: ngram,
+  };
+}
+
+/* 按已生成 token 调整 logits：重复惩罚 / 存在惩罚 / 频率惩罚 / 禁重复 n-gram。
+   中性参数直接返回原数组（不产生新数组，保证旧路径逐位不变）。 */
+function llmApplyPenalties(logits, ids, opts) {
+  const o = llmGenOptions(opts);
+  const neutral = o.repetitionPenalty === 1 && o.presencePenalty === 0 &&
+    o.frequencyPenalty === 0 && o.noRepeatNgramSize < 2;
+  if (neutral) return logits;
+
+  const V = logits.length;
+  const out = logits.slice();
+  const counts = Object.create(null);
+  for (const tok of ids) {
+    if (Number.isInteger(tok) && tok >= 0 && tok < V) counts[tok] = (counts[tok] || 0) + 1;
+  }
+  if (o.repetitionPenalty !== 1) {
+    for (const key in counts) {
+      const tok = Number(key);
+      /* 正 logit 除以惩罚、非正 logit 乘以惩罚（与 Python 版同一分支） */
+      out[tok] = out[tok] > 0 ? out[tok] / o.repetitionPenalty : out[tok] * o.repetitionPenalty;
+    }
+  }
+  if (o.presencePenalty) {
+    for (const key in counts) out[Number(key)] -= o.presencePenalty;
+  }
+  if (o.frequencyPenalty) {
+    for (const key in counts) out[Number(key)] -= o.frequencyPenalty * counts[key];
+  }
+  if (o.noRepeatNgramSize) {
+    const n = o.noRepeatNgramSize;
+    if (ids.length >= n - 1) {
+      const prefix = ids.slice(ids.length - (n - 1));
+      for (let i = 0; i <= ids.length - n; i++) {
+        let same = true;
+        for (let j = 0; j < n - 1; j++) {
+          if (ids[i + j] !== prefix[j]) { same = false; break; }
+        }
+        if (!same) continue;
+        const nxt = ids[i + n - 1];
+        if (Number.isInteger(nxt) && nxt >= 0 && nxt < V) out[nxt] = -Infinity;
+      }
+    }
+  }
+  return out;
+}
+
+/* min_p 截尾：只保留概率 >= min_p * 最大概率 的 token（0 = 关闭）。
+   入参 row 已经过温度缩放与 top-k / top-p 过滤。 */
+function llmMaskMinP(row, minP) {
+  if (!(minP > 0)) return row;
+  const probs = softmaxRow(row);
+  let peak = 0;
+  for (let i = 0; i < probs.length; i++) if (probs[i] > peak) peak = probs[i];
+  const cut = minP * peak;
+  const out = new Array(row.length);
+  for (let i = 0; i < row.length; i++) {
+    out[i] = probs[i] >= cut ? row[i] : -Infinity;
+  }
+  return out;
+}
+
+/* 从一行 logits 采一个 token：top-k / nucleus(top_p) / min_p 过滤 + 温度缩放 + 累积分布采样。
+   top_p = 1.0、min_p = 0（默认）时完全走旧路径，逐位不变。 */
+function llmSampleToken(logits, temperature, topK, topP, rand, minP) {
+  const mp = minP === undefined || minP === null ? 0 : minP;
+  if (typeof mp !== "number" || !Number.isFinite(mp) || mp < 0 || mp >= 1) {
+    throw new Error("min_p 必须在 [0,1) 内（收到 " + mp + "）");
+  }
   const V = logits.length;
   const temp = temperature > 0 ? temperature : 1;
   let row = logits.map(v => v / temp);
@@ -5017,15 +5131,17 @@ function llmSampleToken(logits, temperature, topK, topP, rand) {
     }
     row = row.map((v, i) => (keep[i] ? v : -Infinity));
   }
+  if (mp > 0) row = llmMaskMinP(row, mp);
   const probs = softmaxRow(row);
   let u = rand(), pick = V - 1;
   for (let i = 0; i < V; i++) { u -= probs[i]; if (u <= 0) { pick = i; break; } }
   return pick;
 }
 
-/* 贪心/top-k/top-p 采样续写（topP 省略或 1.0 = 旧行为） */
-function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
+/* 贪心/top-k/top-p/min_p + 惩罚采样续写（topP 省略或 1.0、opts 省略 = 旧行为） */
+function llmGenerate(m, ids, n, temperature, topK, rand, topP, opts) {
   const out = ids.slice();
+  const gen = llmGenOptions(opts);
   if (temperature !== undefined && !(Number.isFinite(temperature) && temperature > 0)) {
     throw new Error("temperature 必须 > 0（收到 " + temperature + "）");
   }
@@ -5039,7 +5155,9 @@ function llmGenerate(m, ids, n, temperature, topK, rand, topP) {
   for (let s = 0; s < n; s++) {
     const ctx = out.slice(Math.max(0, out.length - m.cfg.maxLen));
     const { logits } = llmForward(m, ctx);
-    out.push(llmSampleToken(logits[logits.length - 1], temperature, topK, tp, rand));
+    /* 惩罚作用在完整已生成序列上（含提示词），与 Python 版一致 */
+    const row = llmApplyPenalties(logits[logits.length - 1], out, gen);
+    out.push(llmSampleToken(row, temperature, topK, tp, rand, gen.minP));
   }
   return out;
 }
@@ -5194,6 +5312,26 @@ function llmImportModel(obj) {
     return v;
   }
 
+  /* 采样控制：空输入 = 该参数的默认值（中性）；非数值直接报错，范围交给 llmGenOptions */
+  function llmReadGenOptions() {
+    const read = (id, def, name) => {
+      const el = $id(id);
+      if (!el) return def;
+      const raw = String(el.value == null ? "" : el.value).trim();
+      if (raw === "") return def;
+      const v = Number(raw);
+      if (!Number.isFinite(v)) throw new Error(name + " 必须是数字（收到「" + raw + "」）");
+      return v;
+    };
+    return llmGenOptions({
+      minP: read("llmMinP", 0, "min_p"),
+      repetitionPenalty: read("llmRepPenalty", 1, "repetition_penalty"),
+      presencePenalty: read("llmPresence", 0, "presence_penalty"),
+      frequencyPenalty: read("llmFrequency", 0, "frequency_penalty"),
+      noRepeatNgramSize: read("llmNgram", 0, "no_repeat_ngram_size"),
+    });
+  }
+
   function llmStartTraining() {
     if (llmBusy) return;
     const corpusEl = $id("llmCorpus");
@@ -5273,9 +5411,22 @@ function llmImportModel(obj) {
     const n = llmInt("llmNew", 24, 1, 400);
     const temp = llmFloat("llmTemp", 0.8, 0.1, 2);
     const topP = llmFloat("llmTopP", 1, 0.1, 1);
+    let genOpts;
+    try {
+      genOpts = llmReadGenOptions();
+    } catch (e) {
+      llmUI(e.message);
+      return;
+    }
     const ids = prompt.map(c => llmChars.indexOf(c));
-    const out = llmGenerate(llmModel, ids, n, temp, 0,
-      llmSeedRng((Date.now() & 0x7fffffff) >>> 0), topP);
+    let out;
+    try {
+      out = llmGenerate(llmModel, ids, n, temp, 0,
+        llmSeedRng((Date.now() & 0x7fffffff) >>> 0), topP, genOpts);
+    } catch (e) {
+      llmUI(e.message);                    /* 非法 min_p / 惩罚 / ngram 在面板内报错 */
+      return;
+    }
     const outEl = $id("llmOut");
     if (outEl) outEl.textContent = out.map(i => llmChars[i]).join("");
   }

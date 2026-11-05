@@ -34,7 +34,7 @@
 ### 语言模型（页面底部独立面板）
 - 字符级因果 Transformer（GPT 式掩码自注意力），内置在页面里，纯 JS 手写
 - 训练语料、轮数、学习率、模型维度、滑动窗口可调；训练进度条 + loss 实时显示
-- 训练完成后按提示词续写，可调续写长度、温度、top_p（nucleus 采样）
+- 训练完成后按提示词续写，可调续写长度、温度、top_p（nucleus 采样）、min_p，以及重复 / 存在 / 频率惩罚与禁重复 n-gram
 - 训练结束显示困惑度（exp(平均交叉熵)）
 - 支持把模型（参数 + 配置 + 词表）保存为 JSON，并重新加载继续生成
 
@@ -72,11 +72,18 @@
 - **滑动窗口**：窗口 `W > 0` 时，在因果掩码之外再把 `j < i - W + 1` 的位置置为 `-Infinity`，每个位置只看最近 `W` 个字符（`W = 1` 即只看自己）；`W = 0` 退回全注意力，与原来的行为逐位一致。
 - **训练**：把整段语料当成一条序列，每个位置预测下一个字符，交叉熵损失 + Adam 全参数更新。
 - **生成**：从提示词开始逐字符采样（温度缩放 + 累积分布），每步把最后 `maxLen` 个字符作为上下文重新前向。`top_p < 1` 时先按概率从高到低保留累计概率刚好达到 `top_p` 的 token 集合，再在集合内重新归一化采样（nucleus 采样）；`top_p = 1` 完全跳过这一步，采样结果与旧版逐位相同。
+- **采样控制**：生成时还可叠加五项与 Python 版一致的策略，默认全部关闭。每一步的顺序是「重复惩罚 → 存在惩罚 → 频率惩罚 → 禁重复 n-gram → 温度缩放 → top_k / top_p → min_p」：
+  - `min_p`：top_k / top_p 过滤后，丢掉概率低于 `min_p × 最大概率` 的 token（`0` 关闭）。例如 `min_p = 0.5` 在 `0.7 / 0.2 / 0.1` 上只留 `0.7`；两个等概率 token 会一起保留，因为是按相对峰值截尾。
+  - `repetition_penalty`：已出现 token 的 logit 若为正则除以它，否则乘以它（`1` 关闭）。例如惩罚 `2` 会把 `2 → 1`、`-1 → -2`。
+  - `presence_penalty`：每个出现过的 token 的 logit 减一次，不管出现几次（`0` 关闭）。
+  - `frequency_penalty`：按出现次数扣，`logit -= frequency_penalty × 次数`（`0` 关闭）。
+  - `no_repeat_ngram_size = n`：最近 `n-1` 个字符的片段若在历史里出现过，就把相同的 `n`-gram 后继置为 `-Infinity`（`0` 关闭，`1` 没有意义因而非法）。
+  五项留空或取默认值时，采样结果与未引入这些控制前逐位一致；`min_p ∉ [0,1)`、`repetition_penalty ≤ 0`、`no_repeat_ngram_size = 1` 或非数值输入会在面板内报错。
 - **困惑度**：训练结束后用更新后的权重重新前向一遍，`困惑度 = exp(平均交叉熵)`；平均交叉熵超过 700 时显示 `inf`，避免浮点溢出。
 - **存档**：模型可导出为 JSON（`format` + 配置 + 字符表 + 全部参数），重新加载时会校验格式、配置兼容性与每个参数数组的形状 / 数值，失败时在面板内给出中文错误而不是抛异常；读回后生成结果与保存前一致。
 - 默认语料 `012012…` 是刻意选的周期串：几十轮就能把 loss 压到 1e-5，肉眼确认「它确实学会了转移规律」；换成一句中文也能训练，只是需要的轮数与维度更大。
 
-- **输入校验**：token id 必须是 `[0, 词表大小)` 内的整数，`temperature` 必须 `> 0`，`top_p` 限定在 `(0, 1]`；前向算完 logits 会检查是否全部有限——权重被 NaN 污染时直接报错，而不是把 NaN loss 当正常值继续训练（那会让 Adam 把整个模型写坏）。整行被掩码掉时 `softmax` 返回全 `0` 而不是 `NaN`。
+- **输入校验**：token id 必须是 `[0, 词表大小)` 内的整数，`temperature` 必须 `> 0`，`top_p` 限定在 `(0, 1]`，`min_p` 必须在 `[0, 1)`，`repetition_penalty` 必须是有限正数，`presence_penalty` / `frequency_penalty` 必须是有限数，`no_repeat_ngram_size` 必须是 `0` 或 `≥ 2` 的整数；前向算完 logits 会检查是否全部有限——权重被 NaN 污染时直接报错，而不是把 NaN loss 当正常值继续训练（那会让 Adam 把整个模型写坏）。整行被掩码掉时 `softmax` 返回全 `0` 而不是 `NaN`。
 
 这部分实现与仓库另外两个版本（Python 版 `CausalLM`、C 版 `llm.c`）是同一套结构与同一套掩码语义。
 
@@ -87,7 +94,7 @@
 | 神经网络 | 纯 JavaScript 手写，前向传播 + 反向传播 |
 | 架构模块 | 手写 CNN 1D / RNN / Multi-Head Self-Attention |
 | 语言模型 | 手写字符级因果 Transformer + Adam（前向、反向、采样全部在页面内） |
-| 采样 | 温度缩放 + top-k + nucleus（top_p），掩码 / 采样语义与 Python 参考实现一致 |
+| 采样 | 温度缩放 + top-k + nucleus（top_p）+ min_p，重复 / 存在 / 频率惩罚与禁重复 n-gram，语义与 Python 参考实现一致 |
 | 模型存档 | 参数 / 配置 / 词表序列化为 JSON，导入时校验 format、形状与数值 |
 | 优化器 | 手写 Adam / Momentum / RMSProp / SGD |
 | 图表 | Chart.js 4（CDN） |
@@ -117,6 +124,7 @@ node tools/llm_page_check.js  # 只跑页面结构与伪 DOM
 - **LLM 核心数值**（`tools/llm_core_test.js`）：`tools/extract_page_js.js` 每次运行都从 `index.html` 现场抽出内联的 LLM 核心函数再执行，测的就是页面里的实现，不存在第二份拷贝。
   - 与 `tools/fixtures/llm_baseline.json` 逐位对比 20 步训练 loss、前向 loss / logits、三种生成序列（旧 6 参数调用、显式 `top_p=1`、`window=0`）；
   - nucleus 采样：`top_p=0.5` 只保留最高概率 token、`0.8` 保留前两名丢掉尾部、`top_p=1` 与旧采样在 100 组随机 logits 上逐位一致；
+  - 采样控制：五项惩罚 / `min_p` 各有多条定向断言（repetition 正除负乘、presence 只扣一次、frequency 按次数、ngram=2/3 禁后继、min_p 只留峰值且与 top_k 叠加），显式全中性参数与黄金基线逐位一致，8 种非法参数被拒绝；
   - 滑动窗口：`window=2` 的因果性（改末位不影响前文）、`window=1` 只看自己、非法窗口被拒绝；
   - 中心有限差分梯度：`window=0` / `window=2` 各取 10 个参数，最差相对误差 ≤ 1e-8；
   - 困惑度 = `exp(平均交叉熵)`，`loss > 700` 给 `inf`；
@@ -125,7 +133,7 @@ node tools/llm_page_check.js  # 只跑页面结构与伪 DOM
   - 两段内联 `<script>` 分别编译通过；
   - `div/span/button/textarea/table/select/option` 标签配平；
   - 所有 `id` 唯一，`$id(...)` / `document.getElementById` 引用的元素都存在；
-  - 在伪 DOM 中真正执行页面的 LLM 面板 IIFE，跑通「训练 → 自动生成 → `top_p=0.5` 再生成 → 保存为 Blob → 非法 JSON 报错 → 加载存档 → 继续生成」，并验证窗口输入 `1.5` 报错、缺少 `#llmWindow` 时退回全注意力。
+  - 在伪 DOM 中真正执行页面的 LLM 面板 IIFE，跑通「训练 → 自动生成 → `top_p=0.5` 再生成 → 五项控制留空 / 显式中性生成一致 → 惩罚 + `ngram=2` 生成 → 保存为 Blob → 非法 JSON 报错 → 加载存档 → 继续生成」，并验证窗口输入 `1.5` 报错、`min_p=1.5` / `ngram=1` / 非数值惩罚在面板内报错、缺少 `#llmWindow` 时退回全注意力。
 
 `tools/fixtures/llm_baseline.json` 是引入 nucleus 采样 / 滑动窗口之前的旧实现黄金基线。除非**有意**修改数值算法，否则不要重新生成它；如果确实要改，请在提交信息里写明原因。
 

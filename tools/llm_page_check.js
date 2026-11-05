@@ -202,6 +202,66 @@ async function run() {
     el("llmGenBtn").trigger("click");
     r.ok("top_p=0.5 下生成仍可用", el("llmOut").textContent.length === 10,
       JSON.stringify(el("llmOut").textContent));
+    /* 采样控制：留空按中性默认处理；固定时间种子后与显式中性逐位一致 */
+    const realNow = Date.now;
+    const GEN_IDS = ["llmMinP", "llmRepPenalty", "llmPresence", "llmFrequency", "llmNgram"];
+    const NEUTRAL = ["0", "1", "0", "0", "0"];
+    Date.now = () => 1700000000000;
+    GEN_IDS.forEach(id => { el(id).value = ""; });
+    el("llmTopP").value = "1";
+    el("llmGenBtn").trigger("click");
+    const outBlank = el("llmOut").textContent;
+    GEN_IDS.forEach((id, i) => { el(id).value = NEUTRAL[i]; });
+    el("llmGenBtn").trigger("click");
+    const outNeutral = el("llmOut").textContent;
+    r.ok("五项控制留空与显式中性参数生成结果逐位一致",
+      outBlank.length === 10 && outBlank === outNeutral,
+      JSON.stringify(outBlank) + " vs " + JSON.stringify(outNeutral));
+
+    /* 面板接线：惩罚 + ngram=2 仍然能生成，且不出现重复二元组 */
+    el("llmNew").value = "4";
+    el("llmMinP").value = "0.9";
+    el("llmRepPenalty").value = "2";
+    el("llmPresence").value = "1";
+    el("llmFrequency").value = "1";
+    el("llmNgram").value = "2";
+    el("llmGenBtn").trigger("click");
+    const outPen = el("llmOut").textContent;
+    Date.now = realNow;
+    const bigrams = new Set(["a,b"]);
+    let panelNoRepeat = true;
+    for (let i = 1; i < outPen.length; i++) {
+      const k = outPen[i - 1] + outPen[i];
+      if (bigrams.has(k)) panelNoRepeat = false;
+      bigrams.add(k);
+    }
+    r.ok("面板惩罚 + ngram=2 下仍生成且无重复二元组",
+      outPen.length === 6 && panelNoRepeat, JSON.stringify(outPen));
+
+    /* 非法采样参数：面板内报错且不生成 */
+    el("llmMinP").value = "1.5";
+    el("llmGenBtn").trigger("click");
+    r.ok("面板 min_p=1.5 报错", el("llmProgressText").textContent.indexOf("min_p") >= 0,
+      el("llmProgressText").textContent);
+    el("llmMinP").value = "0";
+
+    el("llmNgram").value = "1";
+    el("llmGenBtn").trigger("click");
+    r.ok("面板 no_repeat_ngram_size=1 报错",
+      el("llmProgressText").textContent.indexOf("no_repeat_ngram_size") >= 0,
+      el("llmProgressText").textContent);
+    el("llmNgram").value = "0";
+
+    el("llmPresence").value = "abc";
+    el("llmGenBtn").trigger("click");
+    r.ok("面板非数值 penalty 报错",
+      el("llmProgressText").textContent.indexOf("presence_penalty 必须是数字") >= 0,
+      el("llmProgressText").textContent);
+
+    /* 复原为中性默认值，避免影响后续「缺 llmWindow」用例 */
+    GEN_IDS.forEach(id => { el(id).value = ""; });
+    el("llmNew").value = "8";
+
     el("llmSaveBtn").trigger("click");
     r.ok("保存写出了 JSON Blob", !!panel.captured.blobText,
       (panel.captured.blobText || "").length + " 字节");

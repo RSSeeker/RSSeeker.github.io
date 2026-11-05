@@ -118,6 +118,118 @@ async function run() {
   }
   r.ok("100 组随机 logits 上 top_p=1.0 与旧采样逐位一致", samplerSame);
 
+  /* ---------------- 2b. 采样控制（min_p / 惩罚 / 禁重复 n-gram） ---------------- */
+  r.section("2b. 采样控制（min_p / 重复 / 存在 / 频率惩罚 / n-gram）");
+
+  r.ok("默认参数下 llmApplyPenalties 原样返回 logits",
+    eqArr(L.llmApplyPenalties([2, 1, 0, -1], [0, 3]), [2, 1, 0, -1]));
+
+  r.ok("repetition_penalty：正 logit 除以惩罚、非正 logit 乘以惩罚",
+    eqArr(L.llmApplyPenalties([2, 1, 0, -1], [0, 3], { repetitionPenalty: 2 }),
+      [1, 1, 0, -2]));
+
+  r.ok("presence_penalty：每个出现过的 token 只扣一次（不管出现几次）",
+    eqArr(L.llmApplyPenalties([1, 2, 3], [0, 0, 1], { presencePenalty: 0.5 }),
+      [0.5, 1.5, 3]));
+
+  r.ok("frequency_penalty：按出现次数扣",
+    eqArr(L.llmApplyPenalties([1, 2, 3], [0, 0, 1], { frequencyPenalty: 0.5 }),
+      [0, 1.5, 3]));
+
+  const ng2 = L.llmApplyPenalties([0, 0, 0], [1, 2, 1, 2], { noRepeatNgramSize: 2 });
+  r.ok("no_repeat_ngram_size=2：禁止末尾 1-gram 重复后的同一后继",
+    ng2[0] === 0 && ng2[1] === -Infinity && ng2[2] === 0);
+
+  const ng3 = L.llmApplyPenalties([0, 0, 0], [0, 1, 2, 0, 1], { noRepeatNgramSize: 3 });
+  r.ok("no_repeat_ngram_size=3：禁止重复三元组的后继",
+    ng3[0] === 0 && ng3[1] === 0 && ng3[2] === -Infinity);
+
+  const minRng = L.llmSeedRng(9090);
+  const peaked3 = [Math.log(0.7), Math.log(0.2), Math.log(0.1)];
+  let onlyPeak = true;
+  for (let i = 0; i < 200; i++) {
+    if (L.llmSampleToken(peaked3, 1, 0, 1, minRng, 0.5) !== 0) onlyPeak = false;
+  }
+  r.ok("min_p=0.5 在 0.7/0.2/0.1 上只保留最大项", onlyPeak);
+
+  let afterTopK = true;
+  for (let i = 0; i < 200; i++) {
+    const t = L.llmSampleToken([Math.log(0.5), Math.log(0.3), Math.log(0.2)],
+      1, 2, 1, minRng, 0.9);
+    if (t !== 0) afterTopK = false;
+  }
+  r.ok("min_p 在 top_k 之后生效（top2 再按相对概率截尾只剩最大项）", afterTopK);
+
+  let sawBoth = [false, false];
+  for (let i = 0; i < 400; i++) {
+    sawBoth[L.llmSampleToken([0, 0], 1, 0, 1, minRng, 0.5)] = true;
+  }
+  r.ok("min_p 只按相对最大概率截尾（两个等概率 token 都保留）", sawBoth[0] && sawBoth[1]);
+
+  const genNeutral = L.llmGenerate(mb, [1, 2], 12, 0.8, 0, L.llmSeedRng(7), 1.0, {
+    minP: 0, repetitionPenalty: 1, presencePenalty: 0,
+    frequencyPenalty: 0, noRepeatNgramSize: 0,
+  });
+  r.ok("显式全中性采样控制与基线逐位相同", eqArr(genNeutral, baseline.genA),
+    genNeutral.join(","));
+
+  const genGreedy = L.llmGenerate(mb, [1, 2], 12, 0.8, 1, L.llmSeedRng(7), 1.0);
+  const genMinP = L.llmGenerate(mb, [1, 2], 12, 0.8, 2, L.llmSeedRng(7), 1.0,
+    { minP: 0.999999 });
+  r.ok("min_p 在续写中生效（topK=2 + min_p≈1 退化为贪心）",
+    eqArr(genMinP, genGreedy), genMinP.join(","));
+
+  const genRep = L.llmGenerate(mb, [1, 2], 12, 0.8, 0, L.llmSeedRng(7), 1.0,
+    { repetitionPenalty: 4 });
+  r.ok("repetition_penalty 在续写中生效（序列与基线不同）",
+    !eqArr(genRep, baseline.genA), genRep.join(","));
+
+  const genPres = L.llmGenerate(mb, [1, 2], 12, 0.8, 0, L.llmSeedRng(7), 1.0,
+    { presencePenalty: 3 });
+  r.ok("presence_penalty 在续写中生效（序列与基线不同）",
+    !eqArr(genPres, baseline.genA), genPres.join(","));
+
+  const genFreq = L.llmGenerate(mb, [1, 2], 12, 0.8, 0, L.llmSeedRng(7), 1.0,
+    { frequencyPenalty: 3 });
+  r.ok("frequency_penalty 在续写中生效（序列与基线不同）",
+    !eqArr(genFreq, baseline.genA), genFreq.join(","));
+
+  const genNg = L.llmGenerate(mb, [1, 2], 12, 0.8, 0, L.llmSeedRng(7), 1.0,
+    { noRepeatNgramSize: 2 });
+  const seenBigrams = new Set();
+  let noRepeatBigram = true;
+  for (let i = 1; i < genNg.length; i++) {
+    const key = genNg[i - 1] + "," + genNg[i];
+    if (seenBigrams.has(key)) noRepeatBigram = false;
+    seenBigrams.add(key);
+  }
+  r.ok("no_repeat_ngram_size=2 在续写中生效（结果没有重复二元组）",
+    noRepeatBigram && !eqArr(genNg, baseline.genA), genNg.join(","));
+
+  const badGenOpts = [
+    ["min_p=-0.1", { minP: -0.1 }, "min_p"],
+    ["min_p=1", { minP: 1 }, "min_p"],
+    ["min_p=NaN", { minP: NaN }, "min_p"],
+    ["min_p 字符串", { minP: "0.5" }, "min_p"],
+    ["ngram=1", { noRepeatNgramSize: 1 }, "no_repeat_ngram_size"],
+    ["ngram=1.5", { noRepeatNgramSize: 1.5 }, "no_repeat_ngram_size"],
+    ["repetition_penalty=0", { repetitionPenalty: 0 }, "repetition_penalty"],
+    ["presence_penalty 字符串", { presencePenalty: "x" }, "presence_penalty"],
+  ];
+  let badGenOk = 0;
+  for (const [label, opt, needle] of badGenOpts) {
+    try {
+      L.llmGenerate(mb, [1], 2, 1, 0, () => 0.5, 1, opt);
+      r.note("FAIL " + label + "：没有报错");
+    } catch (e) {
+      const hit = e instanceof Error && e.message.indexOf(needle) >= 0;
+      if (!hit) r.note("FAIL " + label + "：信息未含「" + needle + "」→ " + e.message);
+      else badGenOk++;
+    }
+  }
+  r.ok("8 种非法生成参数全部被拒绝", badGenOk === badGenOpts.length,
+    badGenOk + "/" + badGenOpts.length);
+
   /* ---------------- 3. 滑动窗口 ---------------- */
   r.section("3. 滑动窗口掩码");
   const ctx5 = [1, 2, 3, 4, 0];

@@ -17,6 +17,7 @@ const LLM_CORE_FUNCTIONS = [
   "llmSeedRng", "llmGauss", "llmZeros", "llmZerosLike", "llmGaussMat", "llmPosTable",
   "llmCreate", "mv", "mvT", "addVec", "addInto", "dot", "softmaxRow", "lnForward", "lnBackward",
   "llmForward", "llmBackward", "llmZeroGrad", "llmAdamStep", "llmTrainStep",
+  "llmGenOptions", "llmApplyPenalties", "llmMaskMinP",
   "llmSampleToken", "llmGenerate", "llmPerplexity", "llmExportModel", "llmImportModel",
 ];
 
