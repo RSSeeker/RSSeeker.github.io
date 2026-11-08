@@ -390,7 +390,7 @@ async function run() {
     L.llmGenerate(vm, [1], 3, 1.0, 1, () => 0.5).length === 4);
 
 
-  r.section("W7. typical / top-a / eta / tail-free / mirostat");
+  r.section("typical / top-a / eta / tail-free / mirostat");
 
   /* 黄金值来自 Python 侧实测：AI.typical_filter 等对同一行 logits 的保留集合，
      行 = [0.5, 2.0, -1.0, 1.0, 3.0, 0.0, -0.5, 1.5]（V = 8）。 */

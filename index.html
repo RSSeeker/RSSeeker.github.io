@@ -5143,7 +5143,7 @@ function llmMaskMinP(row, minP) {
 }
 
 
-/* ---------------- W7 截断采样：typical / top-a / eta / tail-free / mirostat ----------------
+/* ---------------- 截断采样：typical / top-a / eta / tail-free / mirostat ----------------
    四个过滤器都是纯函数（不修改入参），语义与 AI.py 的同类函数一一对应：
      typical_filter   : 惊讶度最接近条件熵的 token，累计概率到 mass
      top_a_filter     : 阈值 top_a * p_max^2
@@ -5387,11 +5387,11 @@ function llmSampleToken(logits, temperature, topK, topP, rand, minP, filters) {
 }
 
 /* 贪心/top-k/top-p/min_p + 惩罚采样续写（topP 省略或 1.0、opts 省略 = 旧行为） */
-/* ---------- 词表级 JSON 约束解码（W7-E 的 JS 版子集） ----------
+/* ---------- 词表级 JSON 约束解码（JS 版子集） ----------
    状态机对应 Python 的 json_grammar()：一个 JSON 文档 = 一个值，之后不能再接东西。
    ctx = { st, stack }；stack 存「关闭当前容器后回到哪个状态」。 */
 /* ---------- 前缀 KV 缓存（对应 Python 的 PrefixCache） ----------
-   每层两张 (len, d) 行表；纯数据结构，不参与生成本身（生成循环仍然整段重算）。 */
+   每层两张 (len, d) 行表；生成循环可用 llmForwardStep / llmGenerateCached 复用。 */
 function llmPrefixCache(numLayers, dModel) {
   if (!Number.isInteger(numLayers) || numLayers < 1) {
     throw new Error("llmPrefixCache: numLayers 必须是正整数（收到 " + numLayers + "）");
