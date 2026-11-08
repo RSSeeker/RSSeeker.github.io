@@ -82,6 +82,28 @@
 
 过滤器顺序写死为 **top_k → typical → top_a → eta → tail_free → top_p → min_p → mirostat**；全部留空时不调用任何过滤器，采样路径与旧版逐位相同（`tools/llm_core_test.js` 有断言）。各过滤器的保留集合与 Python `AI.typical_filter` 等用同一行 logits 的实测结果对齐（`[0.5, 2.0, -1.0, 1.0, 3.0, 0.0, -0.5, 1.5]` → typical `{1,3,4,7}`、top_a `{0,1,3,4,7}`、eta `{4}`、tail_free `{1,4,7}`、mirostat `{1,4}` 且熵 `0.582203108888218`）。
 
+### 前缀 KV 缓存（数据结构 + 可视化）
+
+对应 Python 的 `AI.PrefixCache`，是**纯数据结构**（每层两张 `(len, d)` 行表）：
+
+| 函数 | 作用 |
+|---|---|
+| `llmPrefixCache(numLayers, dModel)` | 建空缓存 |
+| `llmCacheSet(c, layer, keys, values)` / `llmCacheGet(c, layer)` | 写入 / 读取（读出来是深拷贝） |
+| `llmCacheLength(c, layer)` | 该层已缓存的行数 |
+| `llmCacheTruncate(c, n)` | 所有层截断到 `n` 行（只截不放） |
+| `llmCacheMerge(c, other)` | 追加另一个同形状缓存的全部层 |
+| `llmCacheToJSON(c)` / `llmCacheFromJSON(data)` | JSON 往返（可直接塞进存档） |
+| `llmCacheStats(c, promptLen)` / `llmCacheBars(stats, width)` | 每层 `{layer, len, reuse}` 与 ASCII 条形图 |
+
+行宽、有限数字、层号范围、合并时层数/维度一致、`truncate` 非负整数、`fromJSON` 的字段与
+层数都做校验——12 条非法输入在 `tools/llm_core_test.js` 里逐条断言会抛错。
+
+边界说清楚：页面的生成循环**没有**接这层缓存（仍然是每步整段重算，所以数值与重算逐位相同、
+但速度没有提升）。Python 与 C 版本都已经有真正的 KV cache（C 侧实测 20 倍），这里的
+数据结构是给「想自己做缓存实验」的人用的把手，`reuse` 也是相对 `promptLen` 的账面比例，
+不代表任何实测加速。
+
 ### 词表级 JSON 约束解码
 
 页面同时给出一个**词表级**（token-level）的 JSON 约束解码器，等价于 Python 的

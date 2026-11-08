@@ -461,6 +461,8 @@ async function run() {
 
   testJsonGrammar(L, r);
 
+  testPrefixCache(L, r);
+
   return { checks: r.checks, failures: r.failures };
 }
 
@@ -566,4 +568,73 @@ function testJsonGrammar(L, r) {
     }
   }
   r.ok("随机行走 300 次无非法 token", violations === 0, String(violations));
+}
+
+/* 前缀 KV 缓存（Python PrefixCache 的 JS 版） */
+function testPrefixCache(L, r) {
+  r.section("8. 前缀 KV 缓存（PrefixCache）");
+
+  const c = L.llmPrefixCache(2, 3);
+  r.ok("新建缓存每层为空", L.llmCacheLength(c, 0) === 0 && L.llmCacheLength(c, 1) === 0, "");
+
+  L.llmCacheSet(c, 0, [[1, 2, 3], [4, 5, 6]], [[0.5, 0.5, 0.5], [0.1, 0.2, 0.3]]);
+  r.ok("set 后长度", L.llmCacheLength(c, 0) === 2, String(L.llmCacheLength(c, 0)));
+  const got = L.llmCacheGet(c, 0);
+  r.ok("get 往返", JSON.stringify(got.keys) === "[[1,2,3],[4,5,6]]", JSON.stringify(got.keys));
+  got.keys[0][0] = 99;
+  r.ok("get 返回深拷贝", L.llmCacheGet(c, 0).keys[0][0] === 1, String(L.llmCacheGet(c, 0).keys[0][0]));
+
+  r.ok("truncate 截到 1", (L.llmCacheTruncate(c, 1), L.llmCacheLength(c, 0) === 1), String(L.llmCacheLength(c, 0)));
+  r.ok("truncate 不放大", (L.llmCacheTruncate(c, 5), L.llmCacheLength(c, 0) === 1), String(L.llmCacheLength(c, 0)));
+
+  const other = L.llmPrefixCache(2, 3);
+  L.llmCacheSet(other, 0, [[7, 8, 9]], [[1, 1, 1]]);
+  L.llmCacheMerge(c, other);
+  r.ok("merge 追加", L.llmCacheLength(c, 0) === 2, String(L.llmCacheLength(c, 0)));
+  r.ok("merge 内容正确", JSON.stringify(L.llmCacheGet(c, 0).keys) === "[[1,2,3],[7,8,9]]",
+    JSON.stringify(L.llmCacheGet(c, 0).keys));
+  r.ok("未 set 的层 merge 后仍为空", L.llmCacheLength(c, 1) === 0, String(L.llmCacheLength(c, 1)));
+
+  const json = JSON.parse(JSON.stringify(L.llmCacheToJSON(c)));
+  const back = L.llmCacheFromJSON(json);
+  r.ok("JSON 往返", JSON.stringify(L.llmCacheToJSON(back)) === JSON.stringify(L.llmCacheToJSON(c)),
+    JSON.stringify(L.llmCacheToJSON(back)));
+  r.ok("fromJSON 结果可继续 merge", (L.llmCacheMerge(back, other), L.llmCacheLength(back, 0) === 3),
+    String(L.llmCacheLength(back, 0)));
+
+  const stats = L.llmCacheStats(c, 4);
+  r.ok("stats 复用率", Math.abs(stats[0].reuse - 0.5) < 1e-12 && Math.abs(stats[1].reuse) < 1e-12,
+    JSON.stringify(stats));
+  r.ok("promptLen=0 时复用率为 0", L.llmCacheStats(c, 0)[0].reuse === 0, "");
+  const bars = L.llmCacheBars(stats, 10);
+  r.ok("bars 每层一行且用 #/.", bars.length === 2 && /^L0 #{5}\.{5} len=2 reuse=0\.500$/.test(bars[0]),
+    bars[0]);
+
+  /* 错误路径 */
+  let threw = 0;
+  const bad = function (fn) { try { fn(); } catch (e) { threw++; } };
+  bad(function () { L.llmPrefixCache(0, 3); });
+  bad(function () { L.llmPrefixCache(2, 0); });
+  bad(function () { L.llmCacheSet(c, 5, [], []); });
+  bad(function () { L.llmCacheSet(c, 0, [[1, 2]], [[1, 2, 3]]); });
+  bad(function () { L.llmCacheSet(c, 0, [[1, NaN, 3]], [[1, 2, 3]]); });
+  bad(function () { L.llmCacheSet(c, 0, [[1, 2, 3]], [[1, 2, 3], [1, 2, 3]]); });
+  bad(function () { L.llmCacheTruncate(c, -1); });
+  bad(function () { L.llmCacheMerge(c, L.llmPrefixCache(3, 3)); });
+  bad(function () { L.llmCacheMerge(c, L.llmPrefixCache(2, 4)); });
+  bad(function () { L.llmCacheFromJSON({ numLayers: 2, dModel: 3, keys: [], values: [] }); });
+  bad(function () { L.llmCacheFromJSON({ numLayers: 2, dModel: 3, keys: [[], []], values: [] }); });
+  bad(function () { L.llmCacheStats(c, -1); });
+  r.ok("12 条非法输入都报错", threw === 12, String(threw));
+
+  /* 与 Python PrefixCache 的语义对照：merge 等价于「先 set 再追加」 */
+  const py = L.llmPrefixCache(1, 2);
+  L.llmCacheSet(py, 0, [[1, 2]], [[3, 4]]);
+  const tail = L.llmPrefixCache(1, 2);
+  L.llmCacheSet(tail, 0, [[5, 6]], [[7, 8]]);
+  L.llmCacheMerge(py, tail);
+  r.ok("两次追加与一次 set 等价",
+    JSON.stringify(L.llmCacheGet(py, 0).keys) === "[[1,2],[5,6]]" &&
+    JSON.stringify(L.llmCacheGet(py, 0).values) === "[[3,4],[7,8]]",
+    JSON.stringify(L.llmCacheGet(py, 0)));
 }

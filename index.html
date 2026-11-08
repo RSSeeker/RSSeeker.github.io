@@ -5378,6 +5378,155 @@ function llmSampleToken(logits, temperature, topK, topP, rand, minP, filters) {
 /* ---------- 词表级 JSON 约束解码（W7-E 的 JS 版子集） ----------
    状态机对应 Python 的 json_grammar()：一个 JSON 文档 = 一个值，之后不能再接东西。
    ctx = { st, stack }；stack 存「关闭当前容器后回到哪个状态」。 */
+/* ---------- 前缀 KV 缓存（对应 Python 的 PrefixCache） ----------
+   每层两张 (len, d) 行表；纯数据结构，不参与生成本身（生成循环仍然整段重算）。 */
+function llmPrefixCache(numLayers, dModel) {
+  if (!Number.isInteger(numLayers) || numLayers < 1) {
+    throw new Error("llmPrefixCache: numLayers 必须是正整数（收到 " + numLayers + "）");
+  }
+  if (!Number.isInteger(dModel) || dModel < 1) {
+    throw new Error("llmPrefixCache: dModel 必须是正整数（收到 " + dModel + "）");
+  }
+  const keys = [];
+  const values = [];
+  for (let i = 0; i < numLayers; i++) { keys.push([]); values.push([]); }
+  return { numLayers: numLayers, dModel: dModel, keys: keys, values: values };
+}
+
+function llmCacheCheckRows(rows, dModel, who) {
+  if (!Array.isArray(rows)) throw new Error(who + " 必须是行列表");
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!Array.isArray(row) || row.length !== dModel) {
+      throw new Error(who + " 第 " + i + " 行要有 " + dModel + " 个分量");
+    }
+    const copy = [];
+    for (let j = 0; j < row.length; j++) {
+      const v = row[j];
+      if (typeof v !== "number" || !isFinite(v)) {
+        throw new Error(who + " 第 " + i + " 行第 " + j + " 个分量不是有限数字");
+      }
+      copy.push(v);
+    }
+    out.push(copy);
+  }
+  return out;
+}
+
+function llmCacheCheckLayer(c, layer) {
+  if (!c || !Array.isArray(c.keys)) throw new Error("llmCacheCheckLayer: c 不是缓存");
+  if (!Number.isInteger(layer) || layer < 0 || layer >= c.numLayers) {
+    throw new Error("llmCacheCheckLayer: layer 必须在 [0, " + c.numLayers + ") 内（收到 " + layer + "）");
+  }
+}
+
+function llmCacheSet(c, layer, keys, values) {
+  llmCacheCheckLayer(c, layer);
+  const ks = llmCacheCheckRows(keys, c.dModel, "llmCacheSet(keys)");
+  const vs = llmCacheCheckRows(values, c.dModel, "llmCacheSet(values)");
+  if (ks.length !== vs.length) throw new Error("llmCacheSet: keys 与 values 长度必须一致");
+  c.keys[layer] = ks;
+  c.values[layer] = vs;
+  return c;
+}
+
+function llmCacheGet(c, layer) {
+  llmCacheCheckLayer(c, layer);
+  return {
+    keys: c.keys[layer].map(function (r) { return r.slice(); }),
+    values: c.values[layer].map(function (r) { return r.slice(); }),
+  };
+}
+
+function llmCacheLength(c, layer) {
+  llmCacheCheckLayer(c, layer);
+  return c.keys[layer].length;
+}
+
+function llmCacheTruncate(c, newLen) {
+  if (!Number.isInteger(newLen) || newLen < 0) {
+    throw new Error("llmCacheTruncate: newLen 必须是非负整数（收到 " + newLen + "）");
+  }
+  for (let layer = 0; layer < c.numLayers; layer++) {
+    if (c.keys[layer].length > newLen) {
+      c.keys[layer] = c.keys[layer].slice(0, newLen);
+      c.values[layer] = c.values[layer].slice(0, newLen);
+    }
+  }
+  return c;
+}
+
+function llmCacheMerge(c, other) {
+  if (!other || !Array.isArray(other.keys)) throw new Error("llmCacheMerge: other 不是缓存");
+  if (other.numLayers !== c.numLayers || other.dModel !== c.dModel) {
+    throw new Error("llmCacheMerge: 层数或维度不一致（" + other.numLayers + "x" + other.dModel +
+      " vs " + c.numLayers + "x" + c.dModel + "）");
+  }
+  for (let layer = 0; layer < c.numLayers; layer++) {
+    const ks = llmCacheCheckRows(other.keys[layer], c.dModel, "llmCacheMerge(other.keys)");
+    const vs = llmCacheCheckRows(other.values[layer], c.dModel, "llmCacheMerge(other.values)");
+    if (ks.length !== vs.length) throw new Error("llmCacheMerge: 第 " + layer + " 层 keys/values 长度不一致");
+    c.keys[layer] = c.keys[layer].concat(ks);
+    c.values[layer] = c.values[layer].concat(vs);
+  }
+  return c;
+}
+
+function llmCacheToJSON(c) {
+  const keys = [];
+  const values = [];
+  for (let layer = 0; layer < c.numLayers; layer++) {
+    keys.push(c.keys[layer].map(function (r) { return r.slice(); }));
+    values.push(c.values[layer].map(function (r) { return r.slice(); }));
+  }
+  return { numLayers: c.numLayers, dModel: c.dModel, keys: keys, values: values };
+}
+
+function llmCacheFromJSON(data) {
+  if (!data || typeof data !== "object") throw new Error("llmCacheFromJSON: 需要对象");
+  const need = ["numLayers", "dModel", "keys", "values"];
+  for (let i = 0; i < need.length; i++) {
+    if (!(need[i] in data)) throw new Error("llmCacheFromJSON: 缺少字段 " + need[i]);
+  }
+  const c = llmPrefixCache(data.numLayers, data.dModel);
+  if (!Array.isArray(data.keys) || data.keys.length !== c.numLayers) {
+    throw new Error("llmCacheFromJSON: keys 要以层为单位（长度 " + c.numLayers + "）");
+  }
+  for (let layer = 0; layer < c.numLayers; layer++) {
+    llmCacheSet(c, layer, data.keys[layer], data.values[layer]);
+  }
+  return c;
+}
+
+/* 每层已缓存长度与「相对 prompt 的复用率」；used 为 undefined 时按 promptLen 算 */
+function llmCacheStats(c, promptLen) {
+  if (typeof promptLen !== "number" || !isFinite(promptLen) || promptLen < 0) {
+    throw new Error("llmCacheStats: promptLen 必须是非负数（收到 " + promptLen + "）");
+  }
+  const stats = [];
+  for (let layer = 0; layer < c.numLayers; layer++) {
+    const len = c.keys[layer].length;
+    const reuse = promptLen > 0 ? Math.min(len, promptLen) / promptLen : 0;
+    stats.push({ layer: layer, len: len, reuse: reuse });
+  }
+  return stats;
+}
+
+/* ASCII 条形图（每层一行），用于把缓存占用画在日志/终端里 */
+function llmCacheBars(stats, width) {
+  const w = Number.isInteger(width) && width > 0 ? width : 20;
+  const out = [];
+  for (let i = 0; i < stats.length; i++) {
+    const s = stats[i];
+    const filled = Math.max(0, Math.min(w, Math.round(s.reuse * w)));
+    let bar = "";
+    for (let k = 0; k < w; k++) bar += k < filled ? "#" : ".";
+    out.push("L" + s.layer + " " + bar + " len=" + s.len + " reuse=" + s.reuse.toFixed(3));
+  }
+  return out;
+}
+
 function llmJsonStart() {
   return { st: "VAL", stack: [] };
 }
