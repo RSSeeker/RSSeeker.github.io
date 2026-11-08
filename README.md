@@ -74,6 +74,13 @@
 - **生成**：从提示词开始逐字符采样（温度缩放 + 累积分布），每步把最后 `maxLen` 个字符作为上下文重新前向。`top_p < 1` 时先按概率从高到低保留累计概率刚好达到 `top_p` 的 token 集合，再在集合内重新归一化采样（nucleus 采样）；`top_p = 1` 完全跳过这一步，采样结果与旧版逐位相同。
 - **采样控制**：生成时还可叠加五项与 Python 版一致的策略，默认全部关闭。每一步的顺序是「重复惩罚 → 存在惩罚 → 频率惩罚 → 禁重复 n-gram → 温度缩放 → top_k / top_p → min_p」：
   - `min_p`：top_k / top_p 过滤后，丢掉概率低于 `min_p × 最大概率` 的 token（`0` 关闭）。例如 `min_p = 0.5` 在 `0.7 / 0.2 / 0.1` 上只留 `0.7`；两个等概率 token 会一起保留，因为是按相对峰值截尾。
+  - `typical`（`mass`，默认 0.9）：按「惊讶度 `|−log p − H|` 从小到大」累计概率，直到 ≥ `mass`；保留的是最「典型」的那批 token，而不是最简单的一批。
+  - `top_a`（默认 0.1）：阈值 `top_a · p_max²`，比它小的直接砍掉；`0` 关闭。
+  - `eta`（默认 0.3）：丢弃概率 ≤ `eta` 的 token（至少保留 argmax），比 `min_p` 更硬。
+  - `tft`（tail-free，默认 0.5）：按 log 概率的二阶差分找长尾拐点，`tft` 越小保留越多。
+  - `mirostat_mu`：Mirostat 掩码（保留 `−log p ≤ mu`，并给出保留集熵），配合 `llmMirostatUpdate(mu, observed, target, strength)` 迭代。
+
+过滤器顺序写死为 **top_k → typical → top_a → eta → tail_free → top_p → min_p → mirostat**；全部留空时不调用任何过滤器，采样路径与旧版逐位相同（`tools/llm_core_test.js` 有断言）。各过滤器的保留集合与 Python `AI.typical_filter` 等用同一行 logits 的实测结果对齐（`[0.5, 2.0, -1.0, 1.0, 3.0, 0.0, -0.5, 1.5]` → typical `{1,3,4,7}`、top_a `{0,1,3,4,7}`、eta `{4}`、tail_free `{1,4,7}`、mirostat `{1,4}` 且熵 `0.582203108888218`）。
   - `repetition_penalty`：已出现 token 的 logit 若为正则除以它，否则乘以它（`1` 关闭）。例如惩罚 `2` 会把 `2 → 1`、`-1 → -2`。
   - `presence_penalty`：每个出现过的 token 的 logit 减一次，不管出现几次（`0` 关闭）。
   - `frequency_penalty`：按出现次数扣，`logit -= frequency_penalty × 次数`（`0` 关闭）。

@@ -389,6 +389,76 @@ async function run() {
   r.ok("合法参数照常生成（top_p 省略 = 不过滤）",
     L.llmGenerate(vm, [1], 3, 1.0, 1, () => 0.5).length === 4);
 
+
+  r.section("W7. typical / top-a / eta / tail-free / mirostat");
+
+  /* 黄金值来自 Python 侧实测：AI.typical_filter 等对同一行 logits 的保留集合，
+     行 = [0.5, 2.0, -1.0, 1.0, 3.0, 0.0, -0.5, 1.5]（V = 8）。 */
+  const w7row = [0.5, 2.0, -1.0, 1.0, 3.0, 0.0, -0.5, 1.5];
+  const keptIdx = row => {
+    const out = [];
+    for (let i = 0; i < row.length; i++) if (Number.isFinite(row[i])) out.push(i);
+    return out;
+  };
+
+  r.ok("typical(mass=0.9) 保留 {1,3,4,7}",
+    eqArr(keptIdx(L.llmMaskTypical(w7row, 0.9)), [1, 3, 4, 7]),
+    JSON.stringify(keptIdx(L.llmMaskTypical(w7row, 0.9))));
+  r.ok("typical 默认 mass=0.9",
+    eqArr(keptIdx(L.llmMaskTypical(w7row)), [1, 3, 4, 7]));
+
+  r.ok("top_a(0.1) 保留 {0,1,3,4,7}",
+    eqArr(keptIdx(L.llmMaskTopA(w7row, 0.1)), [0, 1, 3, 4, 7]),
+    JSON.stringify(keptIdx(L.llmMaskTopA(w7row, 0.1))));
+  r.ok("top_a=0 不过滤（原样返回）",
+    eqArr(L.llmMaskTopA(w7row, 0), w7row));
+
+  r.ok("eta(0.3) 只留 argmax {4}",
+    eqArr(keptIdx(L.llmMaskEta(w7row, 0.3)), [4]),
+    JSON.stringify(keptIdx(L.llmMaskEta(w7row, 0.3))));
+  r.ok("eta 至少保留 argmax（全等概率时留 0）",
+    eqArr(keptIdx(L.llmMaskEta([0, 0, 0], 0.9)), [0]));
+
+  r.ok("tail_free(0.5) 保留 {1,4,7}",
+    eqArr(keptIdx(L.llmMaskTailFree(w7row, 0.5)), [1, 4, 7]),
+    JSON.stringify(keptIdx(L.llmMaskTailFree(w7row, 0.5))));
+  r.ok("tail_free 在 n<=2 时原样返回",
+    eqArr(L.llmMaskTailFree([0, 0], 0.5), [0, 0]));
+
+  const mir = L.llmMirostatFilter(w7row, 2.0);
+  r.ok("mirostat(mu=2) 保留 {1,4}",
+    eqArr(keptIdx(mir.logits), [1, 4]), JSON.stringify(keptIdx(mir.logits)));
+  r.ok("mirostat 保留集熵 = 0.582203108888218",
+    Math.abs(mir.entropy - 0.582203108888218) < 1e-15,
+    String(mir.entropy));
+
+  r.ok("mirostat_update(5, obs=1, target=2, 0.2) = 5.2",
+    L.llmMirostatUpdate(5, 1, 2, 0.2) === 5.2, String(L.llmMirostatUpdate(5, 1, 2, 0.2)));
+  r.ok("mirostat_update 下限夹到 0",
+    L.llmMirostatUpdate(0.1, 5, 2, 0.2) === 0, String(L.llmMirostatUpdate(0.1, 5, 2, 0.2)));
+
+  r.ok("typical/top_a/eta/tft/mirostat 的参数越界都报错",
+    throwsMsg(() => L.llmMaskTypical(w7row, 0), "mass", "typical=0") &&
+    throwsMsg(() => L.llmMaskTopA(w7row, 1.5), "top_a", "top_a=1.5") &&
+    throwsMsg(() => L.llmMaskEta(w7row, 1), "eta", "eta=1") &&
+    throwsMsg(() => L.llmMaskTailFree(w7row, 0), "tft", "tft=0") &&
+    throwsMsg(() => L.llmMirostatFilter(w7row, -1), "mu", "mu=-1"));
+
+  /* 关掉过滤器时与旧签名逐位一致：同一 rand 序列应得到同一串 token。 */
+  {
+    const a = L.llmGenerate(vm, [1], 4, 1.0, 2, () => 0.42);
+    const b = L.llmGenerate(vm, [1], 4, 1.0, 2, () => 0.42, 1.0, {});
+    r.ok("filters 为空对象时与旧路径逐位一致", eqArr(a, b), JSON.stringify([a, b]));
+  }
+  {
+    const c = L.llmGenerate(vm, [1], 3, 1.0, 0, () => 0.42, 1.0, { typical: 0.9 });
+    r.ok("typical 选项可驱动生成", c.length === 4, JSON.stringify(c));
+  }
+  r.ok("非法 typical/tft/mirostat_mu 在 generate 入口就报错",
+    throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 1, { typical: 2 }), "typical", "typical=2") &&
+    throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 1, { tft: 0 }), "tft", "tft=0") &&
+    throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 1, { mirostatMu: -1 }), "mirostat", "mu=-1"));
+
   return { checks: r.checks, failures: r.failures };
 }
 

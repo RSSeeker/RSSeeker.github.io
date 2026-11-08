@@ -18,6 +18,9 @@ const LLM_CORE_FUNCTIONS = [
   "llmCreate", "mv", "mvT", "addVec", "addInto", "dot", "softmaxRow", "lnForward", "lnBackward",
   "llmForward", "llmBackward", "llmZeroGrad", "llmAdamStep", "llmTrainStep",
   "llmGenOptions", "llmApplyPenalties", "llmMaskMinP",
+  "llmKeepMask", "llmArgmax", "llmMaskTypical", "llmMaskTopA", "llmMaskEta",
+  "llmMaskTailFree", "llmMirostatFilter", "llmMirostatUpdate",
+  "llmApplyFilters", "llmDraw",
   "llmSampleToken", "llmGenerate", "llmPerplexity", "llmExportModel", "llmImportModel",
 ];
 

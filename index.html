@@ -5034,9 +5034,39 @@ function llmGenOptions(opts) {
   if (ngram === 1) {
     throw new Error("no_repeat_ngram_size=1 没有意义（会禁用所有已出现 token）");
   }
+  const filters = {};
+  const optNum = (key, lo, hi, openHi, label) => {
+    const v = pick(key, null);
+    if (v === null) return null;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < lo || (openHi ? !(v < hi) : v > hi)) {
+      throw new Error(label + " 必须在 " + (openHi ? "[" : "[") + lo + "," + hi +
+                      (openHi ? ")" : "]") + " 内，收到 " + String(v) + "。");
+    }
+    return v;
+  };
+  const typical = optNum("typical", 0, 1, true, "typical");
+  if (typical !== null) filters.typical = typical;
+  const topA = optNum("topA", 0, 1, false, "top_a");
+  if (topA !== null) filters.topA = topA;
+  const eta = optNum("eta", 0, 1, true, "eta");
+  if (eta !== null) filters.eta = eta;
+  const tft = pick("tft", null);
+  if (tft !== null) {
+    if (typeof tft !== "number" || !Number.isFinite(tft) || !(tft > 0)) {
+      throw new Error("tft 必须 > 0，收到 " + String(tft) + "。");
+    }
+    filters.tft = tft;
+  }
+  const mu = pick("mirostatMu", null);
+  if (mu !== null) {
+    if (typeof mu !== "number" || !Number.isFinite(mu) || mu < 0) {
+      throw new Error("mirostat_mu 必须 >= 0，收到 " + String(mu) + "。");
+    }
+    filters.mirostatMu = mu;
+  }
   return {
     minP, repetitionPenalty, presencePenalty, frequencyPenalty,
-    noRepeatNgramSize: ngram,
+    noRepeatNgramSize: ngram, filters,
   };
 }
 
@@ -5100,14 +5130,220 @@ function llmMaskMinP(row, minP) {
   return out;
 }
 
+
+/* ---------------- W7 截断采样：typical / top-a / eta / tail-free / mirostat ----------------
+   四个过滤器都是纯函数（不修改入参），语义与 AI.py 的同类函数一一对应：
+     typical_filter   : 惊讶度最接近条件熵的 token，累计概率到 mass
+     top_a_filter     : 阈值 top_a * p_max^2
+     eta_filter       : 丢弃 p <= eta（至少保留 argmax）
+     tail_free_filter : 按 log 概率的二阶差分截断长尾
+     mirostat_filter  : 保留 -log p <= mu（至少保留 argmax），并给出保留集熵
+   默认参数下 llmSampleToken 完全不调用它们，旧路径逐位不变。 */
+
+function llmKeepMask(logits, keep) {
+  const out = new Array(logits.length);
+  for (let i = 0; i < logits.length; i++) {
+    out[i] = keep.has(i) ? logits[i] : -Infinity;
+  }
+  return out;
+}
+
+function llmArgmax(probs) {
+  let best = 0;
+  for (let i = 1; i < probs.length; i++) if (probs[i] > probs[best]) best = i;
+  return best;
+}
+
+function llmMaskTypical(logits, mass) {
+  const m = mass === undefined || mass === null ? 0.9 : mass;
+  if (typeof m !== "number" || !Number.isFinite(m) || !(m > 0) || m > 1) {
+    throw new Error("typical 的 mass 必须在 (0,1] 内，收到 " + m + "。");
+  }
+  const probs = softmaxRow(logits);
+  let entropy = 0;
+  for (let i = 0; i < probs.length; i++) if (probs[i] > 0) entropy -= probs[i] * Math.log(probs[i]);
+  const cand = [];
+  for (let i = 0; i < probs.length; i++) {
+    if (probs[i] > 0) cand.push([Math.abs(-Math.log(probs[i]) - entropy), i]);
+  }
+  cand.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+  const keep = new Set();
+  let acc = 0;
+  for (let k = 0; k < cand.length; k++) {
+    const i = cand[k][1];
+    keep.add(i);
+    acc += probs[i];
+    if (acc >= m) break;
+  }
+  return llmKeepMask(logits, keep);
+}
+
+function llmMaskTopA(logits, topA) {
+  const a = topA === undefined || topA === null ? 0.1 : topA;
+  if (typeof a !== "number" || !Number.isFinite(a) || a < 0 || a > 1) {
+    throw new Error("top_a 必须在 [0,1] 内，收到 " + a + "。");
+  }
+  if (a === 0) return logits.slice();
+  const probs = softmaxRow(logits);
+  let peak = 0;
+  for (let i = 0; i < probs.length; i++) if (probs[i] > peak) peak = probs[i];
+  const thresh = a * peak * peak;
+  const keep = new Set();
+  for (let i = 0; i < probs.length; i++) if (probs[i] >= thresh) keep.add(i);
+  return llmKeepMask(logits, keep);
+}
+
+function llmMaskEta(logits, eta) {
+  const e = eta === undefined || eta === null ? 0.3 : eta;
+  if (typeof e !== "number" || !Number.isFinite(e) || e < 0 || !(e < 1)) {
+    throw new Error("eta 必须在 [0,1) 内，收到 " + e + "。");
+  }
+  const probs = softmaxRow(logits);
+  const keep = new Set();
+  for (let i = 0; i < probs.length; i++) if (probs[i] > e) keep.add(i);
+  keep.add(llmArgmax(probs));
+  return llmKeepMask(logits, keep);
+}
+
+function llmMaskTailFree(logits, tft) {
+  const t = tft === undefined || tft === null ? 0.5 : tft;
+  if (typeof t !== "number" || !Number.isFinite(t) || !(t > 0)) {
+    throw new Error("tft 必须 > 0，收到 " + t + "。");
+  }
+  const n = logits.length;
+  if (n <= 2) return logits.slice();
+  const probs = softmaxRow(logits);
+  const order = new Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((a, b) => (probs[b] - probs[a]) || (a - b));
+  const lp = new Array(n);
+  for (let k = 0; k < n; k++) {
+    const p = probs[order[k]];
+    lp[k] = p > 0 ? Math.log(p) : -745.0;
+  }
+  const d1 = new Array(n - 1);
+  for (let i = 0; i < n - 1; i++) d1[i] = lp[i + 1] - lp[i];
+  const d2 = new Array(n - 2);
+  let scale = 0;
+  for (let i = 0; i < n - 2; i++) {
+    d2[i] = d1[i + 1] - d1[i];
+    const a = Math.abs(d2[i]);
+    if (a > scale) scale = a;
+  }
+  let keep;
+  if (!(scale > 0)) {
+    keep = 1;
+  } else {
+    keep = n;
+    for (let i = 1; i < d2.length; i++) {
+      if (d2[i] / scale < t) { keep = i + 2; break; }
+    }
+  }
+  keep = Math.max(1, Math.min(keep, n));
+  const kept = new Set();
+  for (let k = 0; k < keep; k++) kept.add(order[k]);
+  return llmKeepMask(logits, kept);
+}
+
+function llmMirostatFilter(logits, mu) {
+  const m = mu === undefined || mu === null ? 5.0 : mu;
+  if (typeof m !== "number" || !Number.isFinite(m) || m < 0) {
+    throw new Error("mirostat 的 mu 必须 >= 0，收到 " + m + "。");
+  }
+  const probs = softmaxRow(logits);
+  const keep = new Set();
+  for (let i = 0; i < probs.length; i++) {
+    if (probs[i] > 0 && -Math.log(probs[i]) <= m) keep.add(i);
+  }
+  keep.add(llmArgmax(probs));
+  let total = 0;
+  for (const i of keep) total += probs[i];
+  let ent = 0;
+  for (const i of keep) {
+    const q = probs[i] / total;
+    if (q > 0) ent -= q * Math.log(q);
+  }
+  return { logits: llmKeepMask(logits, keep), entropy: ent };
+}
+
+function llmMirostatUpdate(mu, observed, target, strength) {
+  const t = target === undefined || target === null ? 2.0 : target;
+  const k = strength === undefined || strength === null ? 0.2 : strength;
+  if (typeof observed !== "number" || !Number.isFinite(observed)) {
+    throw new Error("mirostat_update 的 observed 必须是有限数字。");
+  }
+  if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
+    throw new Error("mirostat_update 的 target 必须 >= 0。");
+  }
+  if (typeof k !== "number" || !Number.isFinite(k) || k < 0) {
+    throw new Error("mirostat_update 的 strength 必须 >= 0。");
+  }
+  return Math.max(0, mu - k * (observed - t));
+}
+
+/* 把一组过滤器按固定顺序套在 logits 上（顺序写死，避免调用方各自为政）：
+   top_k -> typical -> top_a -> eta -> tail_free -> top_p -> min_p -> mirostat。
+   全部为默认值时**不会**调用它们，旧路径逐位不变。 */
+function llmApplyFilters(row, temp, topK, topP, minP, filters) {
+  const f = filters === undefined || filters === null ? {} : filters;
+  const V = row.length;
+  let cur = row.map(v => v / (temp > 0 ? temp : 1));
+  if (topK > 0 && topK < V) {
+    const sorted = cur.slice().sort((x, y) => y - x);
+    const cut = sorted[topK - 1];
+    cur = cur.map(v => (v >= cut ? v : -Infinity));
+  }
+  if (f.typical !== undefined && f.typical !== null) cur = llmMaskTypical(cur, f.typical);
+  if (f.topA !== undefined && f.topA !== null) cur = llmMaskTopA(cur, f.topA);
+  if (f.eta !== undefined && f.eta !== null) cur = llmMaskEta(cur, f.eta);
+  if (f.tft !== undefined && f.tft !== null) cur = llmMaskTailFree(cur, f.tft);
+  if (topP > 0 && topP < 1) {
+    const probs0 = softmaxRow(cur);
+    const order = new Array(V);
+    for (let i = 0; i < V; i++) order[i] = i;
+    order.sort((a, b) => (probs0[b] - probs0[a]) || (a - b));
+    const keep = new Array(V).fill(false);
+    let acc = 0;
+    for (let k = 0; k < V; k++) {
+      const i = order[k];
+      keep[i] = true;
+      acc += probs0[i];
+      if (acc >= topP) break;
+    }
+    cur = cur.map((v, i) => (keep[i] ? v : -Infinity));
+  }
+  if (minP > 0) cur = llmMaskMinP(cur, minP);
+  let ent = null;
+  if (f.mirostatMu !== undefined && f.mirostatMu !== null) {
+    const r = llmMirostatFilter(cur, f.mirostatMu);
+    cur = r.logits;
+    ent = r.entropy;
+  }
+  return { logits: cur, entropy: ent };
+}
+
 /* 从一行 logits 采一个 token：top-k / nucleus(top_p) / min_p 过滤 + 温度缩放 + 累积分布采样。
    top_p = 1.0、min_p = 0（默认）时完全走旧路径，逐位不变。 */
-function llmSampleToken(logits, temperature, topK, topP, rand, minP) {
+/* 从（已被掩码的）一行 logits 按累积分布抽一个 token；与旧实现逐字相同，
+   抽出来是为了让带过滤器的路径复用同一段抽样代码。 */
+function llmDraw(row, rand) {
+  const V = row.length;
+  const probs = softmaxRow(row);
+  let u = rand(), pick = V - 1;
+  for (let i = 0; i < V; i++) { u -= probs[i]; if (u <= 0) { pick = i; break; } }
+  return pick;
+}
+
+function llmSampleToken(logits, temperature, topK, topP, rand, minP, filters) {
   const mp = minP === undefined || minP === null ? 0 : minP;
   if (typeof mp !== "number" || !Number.isFinite(mp) || mp < 0 || mp >= 1) {
     throw new Error("min_p 必须在 [0,1) 内（收到 " + mp + "）");
   }
   const V = logits.length;
+  if (filters !== undefined && filters !== null) {
+    const applied = llmApplyFilters(logits, temperature, topK, topP, mp, filters);
+    return llmDraw(applied.logits, rand);
+  }
   const temp = temperature > 0 ? temperature : 1;
   let row = logits.map(v => v / temp);
   if (topK > 0 && topK < V) {
@@ -5157,7 +5393,7 @@ function llmGenerate(m, ids, n, temperature, topK, rand, topP, opts) {
     const { logits } = llmForward(m, ctx);
     /* 惩罚作用在完整已生成序列上（含提示词），与 Python 版一致 */
     const row = llmApplyPenalties(logits[logits.length - 1], out, gen);
-    out.push(llmSampleToken(row, temperature, topK, tp, rand, gen.minP));
+    out.push(llmSampleToken(row, temperature, topK, tp, rand, gen.minP, gen.filters));
   }
   return out;
 }
