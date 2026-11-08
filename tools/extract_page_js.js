@@ -27,6 +27,16 @@ const LLM_CORE_FUNCTIONS = [
   "llmJsonStart", "llmJsonTokenKind", "llmJsonStep", "llmJsonAllowed",
   "llmJsonMask", "llmJsonPick", "llmJsonComplete",
   "llmSampleToken", "llmGenerate", "llmPerplexity", "llmExportModel", "llmImportModel",
+  "llmCheckVec", "llmCos", "llmContrastiveSelect", "llmContrastiveSearch",
+  "llmRegexCharPredicate", "llmRegexNewNfa", "llmRegexNewState", "llmRegexAdd",
+  "llmRegexAddEps", "llmRegexClosure", "llmRegexStep", "llmRegexLive",
+  "llmRegexParse", "llmRegexCompile", "llmRegexGrammar", "llmRegexAdvance",
+  "llmRegexState", "llmRegexViable", "llmRegexAccepts", "llmRegexAllowed", "llmRegexChoices",
+  "llmCfgGrammar", "llmCfgMatch", "llmCfgChart", "llmCfgAccepts", "llmCfgExpected", "llmCfgAllowed",
+  "llmJsonCharGrammar",
+  "llmGrammarAllowed", "llmGrammarAccepts", "llmGrammarMask", "llmGrammarPick",
+  "llmGrammarGenerate", "llmConstrainedGenerate",
+  "llmForwardStep", "llmGenerateCached",
 ];
 
 function readIndexHtml() {
@@ -85,7 +95,7 @@ function extractLlmIife(html) {
   };
 }
 
-/* 把核心代码当 CommonJS 模块执行，返回 25 个函数组成的对象。
+/* 把核心代码当 CommonJS 模块执行，返回 LLM_CORE_FUNCTIONS 里全部函数组成的对象。
    用 new Function 而不是 vm 新上下文：异常仍是本进程的 Error，检查里可以 instanceof。 */
 function loadLlmCore(html) {
   const src = html === undefined ? readIndexHtml() : html;

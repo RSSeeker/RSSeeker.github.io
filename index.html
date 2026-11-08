@@ -1404,6 +1404,18 @@ body.light .github-link:hover { background: rgba(9,105,218,0.15); border-color: 
           <span class="llm-num"><label for="llmFrequency">频率惩罚</label><input type="number" id="llmFrequency" value="0" step="0.1" min="-2" max="2" title="frequency_penalty：按出现次数扣 logit；0 = 关闭"></span>
           <span class="llm-num"><label for="llmNgram">禁重复 n-gram</label><input type="number" id="llmNgram" value="0" step="1" min="0" max="8" title="no_repeat_ngram_size：最近 n-1 个 token 之后禁止再出现相同的 n-gram 后继；0 = 关闭，1 非法"></span>
         </div>
+        <div class="llm-row">
+          <span class="llm-num"><label for="llmTopK">对比 top_k</label><input type="number" id="llmTopK" value="3" min="1" max="16" title="对比搜索每步的候选数；每生成一个字符要 k+1 次前向（k 个候选各前向一次）"></span>
+          <span class="llm-num"><label for="llmAlpha">对比 alpha</label><input type="number" id="llmAlpha" value="0.6" step="0.1" min="0" max="1" title="退化惩罚权重：score = (1−α)·p − α·reward；0 = 不惩罚，1 = 只按相似度挑"></span>
+        </div>
+        <div class="llm-row">
+          <span class="llm-num"><label for="llmConstraint">约束</label><input type="text" id="llmConstraint" value="json" style="width:130px" spellcheck="false" title="填 json = 字符级完整 JSON 文法；或填正则（如 [0-9]+、a[bc]+d、colou?r），只生成整段匹配的字符串"></span>
+          <button class="btn" id="llmContrastiveBtn" disabled title="每步在 top-k 候选里用候选自己的隐状态做退化惩罚，减少重复；代价是每字符 k+1 次前向">🧭 对比搜索</button>
+          <button class="btn" id="llmConstraintBtn" disabled title="按文法逐步屏蔽非法字符：生成语法合法的 JSON 或正则匹配串">🔒 约束解码</button>
+        </div>
+        <div class="llm-row">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:inherit;opacity:0.85;"><input type="checkbox" id="llmUseCache"> 生成时用 KV 缓存（增量前向，结果与整段重算逐位一致）</label>
+        </div>
         <button class="btn" id="llmGenBtn" disabled>✨ 续写</button>
         <div class="llm-out-label">生成结果</div>
         <div class="llm-out" id="llmOut">（先训练，再点续写）</div>
@@ -5672,6 +5684,831 @@ function llmPerplexity(loss) {
   return Math.exp(loss);
 }
 
+/* ---------------- 对比搜索（contrastive search，Su et al. 2022） ----------------
+   每步在概率 top-k 候选里，用「候选自己的隐状态」与历史隐状态的最大余弦相似度
+   作退化惩罚：score = (1−α)·p − α·reward。惩罚必须按候选各自的隐状态算，
+   共用一个隐状态时所有候选同罚，选择就退化成 argmax（与 Python 版同一套论证）。 */
+
+function llmCheckVec(v, who) {
+  if (!Array.isArray(v) || v.length < 1) {
+    throw new Error(who + " 必须是非空数值数组");
+  }
+  const out = [];
+  for (let i = 0; i < v.length; i++) {
+    const x = v[i];
+    if (typeof x !== "number" || !isFinite(x)) {
+      throw new Error(who + " 第 " + i + " 个分量必须是有限数字");
+    }
+    out.push(x);
+  }
+  return out;
+}
+
+/* 余弦相似度；任一侧为零向量时返回 0（避免除零，与 Python `_w7c_cos` 一致） */
+function llmCos(a, b) {
+  const va = llmCheckVec(a, "llmCos(a)");
+  const vb = llmCheckVec(b, "llmCos(b)");
+  if (va.length !== vb.length) throw new Error("llmCos: 两个向量长度必须一致");
+  let dotv = 0, na = 0, nb = 0;
+  for (let i = 0; i < va.length; i++) {
+    dotv += va[i] * vb[i];
+    na += va[i] * va[i];
+    nb += vb[i] * vb[i];
+  }
+  if (na <= 0 || nb <= 0) return 0;
+  return dotv / Math.sqrt(na * nb);
+}
+
+function llmContrastiveSelect(logits, hiddens, history, alpha, topK) {
+  const lg = llmCheckVec(logits, "llmContrastiveSelect(logits)");
+  if (!hiddens || typeof hiddens !== "object" || Array.isArray(hiddens)) {
+    throw new Error("llmContrastiveSelect: hiddens 必须是 { token: 隐状态 } 对象");
+  }
+  if (Object.keys(hiddens).length === 0) {
+    throw new Error("llmContrastiveSelect: hiddens 不能为空");
+  }
+  const a = alpha === undefined ? 0.6 : alpha;
+  if (typeof a !== "number" || !isFinite(a) || a < 0 || a > 1) {
+    throw new Error("llmContrastiveSelect: alpha 必须在 [0,1] 内");
+  }
+  const k = topK === undefined ? 5 : topK;
+  if (!Number.isInteger(k) || k < 1) {
+    throw new Error("llmContrastiveSelect: top_k 必须是正整数");
+  }
+  const histRaw = history === undefined || history === null ? [] : history;
+  if (!Array.isArray(histRaw)) throw new Error("llmContrastiveSelect: history 必须是数组");
+  const hist = histRaw.map(h => llmCheckVec(h, "llmContrastiveSelect(history[])"));
+
+  const probs = softmaxRow(lg);
+  const order = probs.map(function (p, i) { return i; })
+    .sort(function (i, j) { return probs[j] - probs[i] || i - j; })
+    .slice(0, k);
+  const cands = [];
+  for (const tok of order) {
+    if (!Object.prototype.hasOwnProperty.call(hiddens, tok)) {
+      throw new Error("llmContrastiveSelect: hiddens 缺少候选 token " + tok + " 的隐状态");
+    }
+    const hv = llmCheckVec(hiddens[tok], "llmContrastiveSelect(hiddens[" + tok + "])");
+    if (hist.length && hv.length !== hist[0].length) {
+      throw new Error("llmContrastiveSelect: 候选隐状态宽度必须与 history 一致");
+    }
+    let reward = 0;
+    if (hist.length) {
+      reward = -Infinity;
+      for (const h of hist) {
+        const c = llmCos(hv, h);
+        if (c > reward) reward = c;
+      }
+    }
+    cands.push({ token: tok, score: (1 - a) * probs[tok] - a * reward,
+                 prob: probs[tok], reward: reward });
+  }
+  let best = cands[0];
+  for (let i = 1; i < cands.length; i++) {
+    if (cands[i].score > best.score) best = cands[i];   /* 同分保留较早者 */
+  }
+  return { token: best.token, score: best.score, prob: best.prob, reward: best.reward,
+           candidates: cands };
+}
+
+/* 对比搜索生成：每步对 top-k 候选各前向一次拿它自己的隐状态 → 每个 token 要 k+1 次前向。
+   提示与续写总长度必须不超过 maxLen（Python 版靠 forward 的长度检查报错，这里提前报）。 */
+function llmContrastiveSearch(m, ids, maxNewTokens, topK, alpha) {
+  if (!m || !m.cfg || !m.p) throw new Error("llmContrastiveSearch: 需要 llmCreate() 建的模型");
+  if (!Array.isArray(ids) || !ids.length) throw new Error("llmContrastiveSearch: ids 必须是非空数组");
+  const n = maxNewTokens === undefined ? 8 : maxNewTokens;
+  if (!Number.isInteger(n) || n < 1) throw new Error("llmContrastiveSearch: max_new_tokens 必须是正整数");
+  const k = topK === undefined ? 5 : topK;
+  if (!Number.isInteger(k) || k < 1) throw new Error("llmContrastiveSearch: top_k 必须是正整数");
+  const a = alpha === undefined ? 0.6 : alpha;
+  if (typeof a !== "number" || !isFinite(a) || a < 0 || a > 1) {
+    throw new Error("llmContrastiveSearch: alpha 必须在 [0,1] 内");
+  }
+  if (ids.length >= m.cfg.maxLen) {
+    throw new Error("llmContrastiveSearch: 提示长度必须小于 maxLen（每个候选都要把提示+候选再前向一次）");
+  }
+  if (ids.length + n > m.cfg.maxLen) {
+    throw new Error("llmContrastiveSearch: 提示 + 续写长度 " + (ids.length + n) +
+      " 超过 maxLen=" + m.cfg.maxLen + "（对比搜索不截断窗口）");
+  }
+
+  const cur = ids.slice();
+  const fwd0 = llmForward(m, cur);
+  let logits = fwd0.logits;
+  const T = cur.length;
+  let hidden = fwd0.cache.h2[T - 1].slice();
+  const history = fwd0.cache.h2.slice(0, T - 1).map(h => h.slice());
+  const picks = [];
+  let forwards = 1;
+
+  for (let s = 0; s < n; s++) {
+    const last = logits[logits.length - 1];
+    const probs = softmaxRow(last);
+    const order = probs.map(function (p, i) { return i; })
+      .sort(function (i, j) { return probs[j] - probs[i] || i - j; })
+      .slice(0, k);
+    const hiddens = {};
+    const cache = {};
+    for (const tok of order) {
+      const fwd = llmForward(m, cur.concat([tok]));
+      forwards += 1;
+      const hTok = fwd.cache.h2[fwd.cache.h2.length - 1].slice();
+      hiddens[tok] = hTok;
+      cache[tok] = { logits: fwd.logits, hidden: hTok };
+    }
+    const pick = llmContrastiveSelect(last, hiddens, history, a, k);
+    const tok = pick.token;
+    history.push(hidden);
+    cur.push(tok);
+    const next = cache[tok];
+    logits = next.logits;
+    hidden = next.hidden;
+    picks.push({ token: tok, score: pick.score, prob: pick.prob, reward: pick.reward });
+  }
+  return { ids: cur, picks: picks, forwards: forwards };
+}
+
+/* ---------------- 语法约束解码：正则（Thompson NFA） ---------------- */
+
+function llmRegexCharPredicate(spec) {
+  if (typeof spec === "function") return spec;
+  if (typeof spec !== "string" || !spec) {
+    throw new Error("llmRegexCharPredicate: 需要非空字符串或函数");
+  }
+  const one = ch => typeof ch === "string" && Array.from(ch).length === 1;
+  const table = {
+    digit: ch => one(ch) && ch >= "0" && ch <= "9",
+    alpha: ch => one(ch) && /[A-Za-z]/.test(ch),
+    alnum: ch => one(ch) && /[0-9A-Za-z]/.test(ch),
+    space: ch => one(ch) && /\s/.test(ch),
+    lower: ch => one(ch) && /[a-z]/.test(ch),
+    upper: ch => one(ch) && /[A-Z]/.test(ch),
+    any: ch => one(ch),
+  };
+  if (table[spec]) return table[spec];
+  return ch => one(ch) && spec.indexOf(ch) >= 0;
+}
+
+function llmRegexNewNfa() {
+  return { edges: [], eps: [], start: null, accept: null };
+}
+
+function llmRegexNewState(nfa) {
+  nfa.edges.push([]);
+  nfa.eps.push([]);
+  return nfa.edges.length - 1;
+}
+
+function llmRegexAdd(nfa, src, pred, dst) {
+  nfa.edges[src].push({ pred: pred, dst: dst });
+}
+
+function llmRegexAddEps(nfa, src, dst) {
+  nfa.eps[src].push(dst);
+}
+
+function llmRegexClosure(nfa, states) {
+  const out = new Set(states);
+  const stack = Array.from(states);
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const nxt of nfa.eps[cur]) {
+      if (!out.has(nxt)) { out.add(nxt); stack.push(nxt); }
+    }
+  }
+  return out;
+}
+
+function llmRegexStep(nfa, states, token) {
+  const out = new Set();
+  for (const cur of llmRegexClosure(nfa, states)) {
+    for (const edge of nfa.edges[cur]) {
+      if (edge.pred(token)) out.add(edge.dst);
+    }
+  }
+  return llmRegexClosure(nfa, out);
+}
+
+/* 能到达接受态的状态集合（反向可达）；allowed 用它剔除「走进去就再也收不了尾」的分支 */
+function llmRegexLive(nfa) {
+  const rev = [];
+  for (let i = 0; i < nfa.edges.length; i++) rev.push([]);
+  for (let src = 0; src < nfa.edges.length; src++) {
+    for (const edge of nfa.edges[src]) rev[edge.dst].push(src);
+    for (const dst of nfa.eps[src]) rev[dst].push(src);
+  }
+  const live = new Set([nfa.accept]);
+  const stack = [nfa.accept];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const pre of rev[cur]) {
+      if (!live.has(pre)) { live.add(pre); stack.push(pre); }
+    }
+  }
+  return live;
+}
+
+function llmRegexParse(pattern) {
+  if (typeof pattern !== "string") throw new Error("llmRegexParse: pattern 必须是字符串");
+  if (!pattern) throw new Error("llmRegexParse: pattern 不能为空");
+  let pos = 0;
+  const peek = () => (pos < pattern.length ? pattern.charAt(pos) : null);
+  const take = () => { const ch = peek(); pos += 1; return ch; };
+
+  function parseAlt() {
+    const branches = [parseConcat()];
+    while (peek() === "|") { take(); branches.push(parseConcat()); }
+    return branches.length === 1 ? branches[0] : { t: "alt", branches: branches };
+  }
+  function parseConcat() {
+    const items = [];
+    while (peek() !== null && peek() !== ")" && peek() !== "|") items.push(parseRepeat());
+    return { t: "cat", items: items };
+  }
+  function parseAtom() {
+    const ch = take();
+    if (ch === null) throw new Error("llmRegexParse: 表达式意外结束");
+    if (ch === ".") return { t: "set", pred: llmRegexCharPredicate("any") };
+    if (ch === "\\") {
+      const nxt = take();
+      if (nxt === null) throw new Error("llmRegexParse: 结尾多了反斜杠");
+      if (nxt === "d") return { t: "set", pred: llmRegexCharPredicate("digit") };
+      if (nxt === "w") return { t: "set", pred: llmRegexCharPredicate("alnum") };
+      if (nxt === "s") return { t: "set", pred: llmRegexCharPredicate("space") };
+      return { t: "lit", ch: nxt };
+    }
+    if (ch === "[") {
+      let body = "";
+      let negate = false;
+      if (peek() === "^") { take(); negate = true; }
+      let first = true;
+      for (;;) {
+        let cur = take();
+        if (cur === null) throw new Error("llmRegexParse: 字符类没有闭合 ]");
+        if (cur === "]" && !first) break;
+        if (cur === "\\") {
+          const nxt = take();
+          if (nxt === null) throw new Error("llmRegexParse: 字符类里的转义不完整");
+          cur = nxt;
+        }
+        if (peek() === "-" && pos + 1 < pattern.length && pattern.charAt(pos + 1) !== "]") {
+          take();
+          const hi = take();
+          if (hi === null) throw new Error("llmRegexParse: 字符类区间缺少上界");
+          if (hi.charCodeAt(0) < cur.charCodeAt(0)) {
+            throw new Error("llmRegexParse: 字符类区间 " + JSON.stringify(cur + "-" + hi) + " 上界小于下界");
+          }
+          for (let c = cur.charCodeAt(0); c <= hi.charCodeAt(0); c++) body += String.fromCharCode(c);
+        } else {
+          body += cur;
+        }
+        first = false;
+      }
+      const chars = body;
+      const pred = negate
+        ? (c => typeof c === "string" && Array.from(c).length === 1 && chars.indexOf(c) < 0)
+        : (c => typeof c === "string" && Array.from(c).length === 1 && chars.indexOf(c) >= 0);
+      return { t: "set", pred: pred };
+    }
+    if (ch === "(") {
+      const inner = parseAlt();
+      if (take() !== ")") throw new Error("llmRegexParse: 分组没有闭合 )");
+      return inner;
+    }
+    return { t: "lit", ch: ch };
+  }
+  function parseRepeat() {
+    let atom = parseAtom();
+    for (;;) {
+      const cur = peek();
+      if (cur === "*") { take(); atom = { t: "star", inner: atom }; }
+      else if (cur === "+") { take(); atom = { t: "plus", inner: atom }; }
+      else if (cur === "?") { take(); atom = { t: "opt", inner: atom }; }
+      else return atom;
+    }
+  }
+
+  const ast = parseAlt();
+  if (pos !== pattern.length) {
+    throw new Error("llmRegexParse: 第 " + pos + " 个字符处无法解析（多余 " + JSON.stringify(pattern.slice(pos)) + "）");
+  }
+  return ast;
+}
+
+function llmRegexCompile(ast, nfa) {
+  const kind = ast.t;
+  if (kind === "lit") {
+    const a = llmRegexNewState(nfa), b = llmRegexNewState(nfa);
+    const ch = ast.ch;
+    llmRegexAdd(nfa, a, t => t === ch, b);
+    return { a: a, b: b };
+  }
+  if (kind === "set") {
+    const a = llmRegexNewState(nfa), b = llmRegexNewState(nfa);
+    const pred = ast.pred;
+    llmRegexAdd(nfa, a, t => typeof t === "string" && Array.from(t).length === 1 && pred(t), b);
+    return { a: a, b: b };
+  }
+  if (kind === "cat") {
+    const a = llmRegexNewState(nfa);
+    let cur = a;
+    for (const item of ast.items) {
+      const sub = llmRegexCompile(item, nfa);
+      llmRegexAddEps(nfa, cur, sub.a);
+      cur = sub.b;
+    }
+    return { a: a, b: cur };
+  }
+  if (kind === "alt") {
+    const a = llmRegexNewState(nfa), b = llmRegexNewState(nfa);
+    for (const branch of ast.branches) {
+      const sub = llmRegexCompile(branch, nfa);
+      llmRegexAddEps(nfa, a, sub.a);
+      llmRegexAddEps(nfa, sub.b, b);
+    }
+    return { a: a, b: b };
+  }
+  if (kind === "star" || kind === "plus" || kind === "opt") {
+    const a = llmRegexNewState(nfa), b = llmRegexNewState(nfa);
+    const sub = llmRegexCompile(ast.inner, nfa);
+    llmRegexAddEps(nfa, a, sub.a);
+    llmRegexAddEps(nfa, sub.b, b);
+    if (kind === "star" || kind === "opt") llmRegexAddEps(nfa, a, b);
+    if (kind === "star" || kind === "plus") llmRegexAddEps(nfa, sub.b, sub.a);
+    return { a: a, b: b };
+  }
+  throw new Error("llmRegexCompile: 未知节点 " + JSON.stringify(kind));
+}
+
+/* 正则语法器：字面量 / `.` / `*+?` / `[abc]` `[^abc]` / `\d \w \s` / `|` / 分组。
+   只支持整段匹配（相当于 re.fullmatch），逐字符推进；字符类按 ASCII 语义。 */
+function llmRegexGrammar(pattern) {
+  const nfa = llmRegexNewNfa();
+  const ast = llmRegexParse(pattern);
+  const bounds = llmRegexCompile(ast, nfa);
+  nfa.start = bounds.a;
+  nfa.accept = bounds.b;
+  return { kind: "regex", pattern: pattern, nfa: nfa, live: llmRegexLive(nfa) };
+}
+
+function llmRegexAdvance(g, tokens) {
+  if (!g || g.kind !== "regex") throw new Error("llmRegexAdvance: 需要 llmRegexGrammar() 的返回值");
+  if (!Array.isArray(tokens)) throw new Error("llmRegexAdvance: tokens 必须是数组");
+  let states = new Set([g.nfa.start]);
+  for (const tok of tokens) {
+    states = llmRegexStep(g.nfa, states, tok);
+    if (!states.size) return null;
+  }
+  return states;
+}
+
+function llmRegexState(g, prefix) {
+  const tokens = Array.isArray(prefix) ? prefix : Array.from(String(prefix));
+  const states = llmRegexAdvance(g, tokens);
+  if (states === null) throw new Error("llmRegexState: 前缀 " + JSON.stringify(tokens) + " 已经不可能匹配");
+  return states;
+}
+
+function llmRegexViable(g, prefix) {
+  const states = llmRegexAdvance(g, Array.isArray(prefix) ? prefix : Array.from(String(prefix)));
+  if (states === null) return false;
+  for (const st of states) if (g.live.has(st)) return true;
+  return false;
+}
+
+function llmRegexAccepts(g, tokens) {
+  const states = llmRegexAdvance(g, Array.isArray(tokens) ? tokens : Array.from(String(tokens)));
+  return states !== null && states.has(g.nfa.accept);
+}
+
+function llmRegexAllowed(g, prefix, vocab) {
+  const states = llmRegexAdvance(g, Array.isArray(prefix) ? prefix : Array.from(String(prefix)));
+  if (!Array.isArray(vocab)) throw new Error("llmRegexAllowed: vocab 必须是数组");
+  if (states === null) return [];
+  const out = [];
+  for (const tok of vocab) {
+    const nxt = llmRegexStep(g.nfa, states, tok);
+    let ok = false;
+    for (const st of nxt) if (g.live.has(st)) { ok = true; break; }
+    if (ok) out.push(tok);
+  }
+  return out;
+}
+
+/* 一个可用的字符级词表（仅用于演示/测试，与 Python RegexGrammar.choices() 相同范围） */
+function llmRegexChoices() {
+  const out = [];
+  for (let c = 32; c < 127; c++) out.push(String.fromCharCode(c));
+  return out;
+}
+
+/* ---------------- 语法约束解码：CFG（Earley 解析器） ---------------- */
+
+function llmCfgGrammar(productions, start) {
+  if (!productions || typeof productions !== "object" || Array.isArray(productions)) {
+    throw new Error("llmCfgGrammar: productions 必须是对象");
+  }
+  if (typeof start !== "string" || !start) throw new Error("llmCfgGrammar: 起始符号必须是非空字符串");
+  if (!Object.prototype.hasOwnProperty.call(productions, start)) {
+    throw new Error("llmCfgGrammar: 起始符号 \"" + start + "\" 不在 productions 里");
+  }
+  const rules = [];
+  const byLhs = new Map();
+  const nonterminals = new Set();
+  for (const lhs in productions) {
+    if (!Object.prototype.hasOwnProperty.call(productions, lhs)) continue;
+    nonterminals.add(lhs);
+    const alts = productions[lhs];
+    if (!Array.isArray(alts)) throw new Error("llmCfgGrammar: \"" + lhs + "\" 的右部必须是数组");
+    if (!byLhs.has(lhs)) byLhs.set(lhs, []);
+    for (const alt of alts) {
+      if (!Array.isArray(alt)) throw new Error("llmCfgGrammar: \"" + lhs + "\" 的每条右部必须是数组");
+      const idx = rules.length;
+      rules.push({ lhs: lhs, rhs: alt.slice() });
+      byLhs.get(lhs).push(idx);
+    }
+  }
+  return { kind: "cfg", rules: rules, byLhs: byLhs, start: start, nonterminals: nonterminals };
+}
+
+function llmCfgMatch(symbol, token) {
+  if (typeof symbol === "function") return !!symbol(token);
+  return symbol === token;
+}
+
+function llmCfgChart(g, tokens) {
+  if (!g || g.kind !== "cfg") throw new Error("llmCfgChart: 需要 llmCfgGrammar() 的返回值");
+  if (!Array.isArray(tokens)) throw new Error("llmCfgChart: tokens 必须是数组");
+  const n = tokens.length;
+  const chart = [];
+  for (let i = 0; i <= n; i++) chart.push(new Map());
+  const add = (i, idx, dot, origin) => {
+    const key = idx + "," + dot + "," + origin;
+    if (chart[i].has(key)) return false;
+    chart[i].set(key, { idx: idx, dot: dot, origin: origin });
+    return true;
+  };
+  for (const idx of g.byLhs.get(g.start)) add(0, idx, 0, 0);
+  for (let i = 0; i <= n; i++) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const st of Array.from(chart[i].values())) {
+        const rule = g.rules[st.idx];
+        if (st.dot < rule.rhs.length) {
+          const sym = rule.rhs[st.dot];
+          if (typeof sym === "string" && g.nonterminals.has(sym)) {
+            const list = g.byLhs.get(sym) || [];
+            for (const nidx of list) {
+              if (add(i, nidx, 0, i)) changed = true;
+            }
+          }
+        } else {
+          for (const pst of Array.from(chart[st.origin].values())) {
+            const prule = g.rules[pst.idx];
+            if (pst.dot < prule.rhs.length && prule.rhs[pst.dot] === rule.lhs) {
+              if (add(i, pst.idx, pst.dot + 1, pst.origin)) changed = true;
+            }
+          }
+        }
+      }
+    }
+    if (i < n) {
+      const token = tokens[i];
+      for (const st of chart[i].values()) {
+        const rule = g.rules[st.idx];
+        if (st.dot >= rule.rhs.length) continue;
+        const sym = rule.rhs[st.dot];
+        if (typeof sym === "string" && g.nonterminals.has(sym)) continue;
+        if (llmCfgMatch(sym, token)) add(i + 1, st.idx, st.dot + 1, st.origin);
+      }
+    }
+  }
+  return chart;
+}
+
+function llmCfgAccepts(g, tokens) {
+  const list = Array.isArray(tokens) ? tokens : Array.from(String(tokens));
+  const chart = llmCfgChart(g, list);
+  for (const st of chart[list.length].values()) {
+    const rule = g.rules[st.idx];
+    if (rule.lhs === g.start && st.dot === rule.rhs.length && st.origin === 0) return true;
+  }
+  return false;
+}
+
+/* 当前前缀下所有「可以接下去」的终结符（可能是谓词函数） */
+function llmCfgExpected(g, prefix) {
+  const tokens = Array.isArray(prefix) ? prefix : Array.from(String(prefix));
+  const chart = llmCfgChart(g, tokens);
+  const i = tokens.length;
+  const out = [];
+  for (const st of chart[i].values()) {
+    const rule = g.rules[st.idx];
+    if (st.dot >= rule.rhs.length) continue;
+    const sym = rule.rhs[st.dot];
+    if (typeof sym === "string" && g.nonterminals.has(sym)) continue;
+    if (!out.some(x => x === sym)) out.push(sym);
+  }
+  return out;
+}
+
+function llmCfgAllowed(g, prefix, vocab) {
+  if (!Array.isArray(vocab)) throw new Error("llmCfgAllowed: vocab 必须是数组");
+  const expected = llmCfgExpected(g, prefix);
+  const out = [];
+  for (const tok of vocab) {
+    for (const sym of expected) {
+      if (llmCfgMatch(sym, tok)) { out.push(tok); break; }
+    }
+  }
+  return out;
+}
+
+/* ---------------- 字符级完整 JSON 文法（紧凑形式：生成结果不含空白） ----------------
+   结构文法等价于 Python `json_grammar()`，区别是这里按**字符**推进：字符串带转义、
+   数字拆成整数/小数/指数三段。语义（键去重、数字范围等）仍由 JSON.parse 收尾校验，
+   不包含 JSON Schema 校验（与 Python 版边界一致）。 */
+
+let LLM_JSON_CHAR_GRAMMAR = null;
+
+function llmJsonCharGrammar() {
+  if (LLM_JSON_CHAR_GRAMMAR) return LLM_JSON_CHAR_GRAMMAR;
+  const one = ch => typeof ch === "string" && Array.from(ch).length === 1;
+  const digit = ch => one(ch) && ch >= "0" && ch <= "9";
+  const digit19 = ch => one(ch) && ch >= "1" && ch <= "9";
+  const hex = ch => one(ch) && /[0-9A-Fa-f]/.test(ch);
+  const unescaped = ch => one(ch) && ch >= " " && ch !== '"' && ch !== "\\";
+  const escBody = ch => one(ch) && '"\\/bfnrt'.indexOf(ch) >= 0;
+
+  LLM_JSON_CHAR_GRAMMAR = llmCfgGrammar({
+    V: [["OBJ"], ["ARR"], ["STR"], ["NUM"], ["LIT"]],
+    OBJ: [["{", "}"], ["{", "MEMBERS", "}"]],
+    MEMBERS: [["PAIR"], ["MEMBERS", ",", "PAIR"]],
+    PAIR: [["STR", ":", "V"]],
+    ARR: [["[", "]"], ["[", "ELEMS", "]"]],
+    ELEMS: [["V"], ["ELEMS", ",", "V"]],
+    STR: [['"', "STRBODY", '"']],
+    STRBODY: [[], ["STRBODY", "STRITEM"]],
+    STRITEM: [["STRCHAR"], ["ESCSEQ"], ["ESCU"]],
+    STRCHAR: [[unescaped]],
+    ESCSEQ: [["\\", escBody]],
+    ESCU: [["\\", "u", hex, hex, hex, hex]],
+    NUM: [["NUMABS"], ["-", "NUMABS"]],
+    NUMABS: [["INT"], ["INT", "FRAC"], ["INT", "EXP"], ["INT", "FRAC", "EXP"]],
+    INT: [["0"], ["D19", "DIGITS"]],
+    D: [[digit]],
+    D19: [[digit19]],
+    DIGITS: [[], ["DIGITS", "D"]],
+    FRAC: [[".", "D", "DIGITS"]],
+    EXP: [["EXPC", "D", "DIGITS"], ["EXPC", "SIGN", "D", "DIGITS"]],
+    EXPC: [["e"], ["E"]],
+    SIGN: [["+"], ["-"]],
+    LIT: [["t", "r", "u", "e"], ["f", "a", "l", "s", "e"], ["n", "u", "l", "l"]],
+  }, "V");
+  return LLM_JSON_CHAR_GRAMMAR;
+}
+
+/* ---------------- 语法约束的解码入口（正则 / CFG 通用） ---------------- */
+
+function llmGrammarAllowed(grammar, prefix, vocab) {
+  if (!grammar || typeof grammar !== "object") {
+    throw new Error("llmGrammarAllowed: 需要 llmRegexGrammar() 或 llmCfgGrammar()/llmJsonCharGrammar() 的返回值");
+  }
+  if (grammar.kind === "regex") return llmRegexAllowed(grammar, prefix, vocab);
+  if (grammar.kind === "cfg") return llmCfgAllowed(grammar, prefix, vocab);
+  throw new Error("llmGrammarAllowed: 无法识别的语法器（kind=" + String(grammar.kind) + "）");
+}
+
+function llmGrammarAccepts(grammar, tokens) {
+  if (!grammar || typeof grammar !== "object") {
+    throw new Error("llmGrammarAccepts: 需要 llmRegexGrammar() 或 llmCfgGrammar() 的返回值");
+  }
+  if (grammar.kind === "regex") return llmRegexAccepts(grammar, tokens);
+  if (grammar.kind === "cfg") return llmCfgAccepts(grammar, tokens);
+  throw new Error("llmGrammarAccepts: 无法识别的语法器（kind=" + String(grammar.kind) + "）");
+}
+
+function llmGrammarMask(grammar, prefix, vocab) {
+  if (!Array.isArray(vocab)) throw new Error("llmGrammarMask: vocab 必须是数组");
+  const allowed = llmGrammarAllowed(grammar, prefix, vocab);
+  return vocab.map(tok => allowed.indexOf(tok) >= 0);
+}
+
+/* 在语法允许的候选里取 logit 最大者（同分取小下标），返回 {index, token}；无解则报错 */
+function llmGrammarPick(grammar, prefix, logits, vocab) {
+  if (!Array.isArray(logits) || !Array.isArray(vocab)) {
+    throw new Error("llmGrammarPick: logits 与 vocab 必须是数组");
+  }
+  if (logits.length !== vocab.length) {
+    throw new Error("llmGrammarPick: logits 长度 " + logits.length + " 与词表 " + vocab.length + " 不一致");
+  }
+  const allowed = llmGrammarAllowed(grammar, prefix, vocab);
+  if (!allowed.length) {
+    throw new Error("llmGrammarPick: 没有可用的下一个 token（前缀 " + JSON.stringify(prefix) + " 已无解）");
+  }
+  let best = -1;
+  for (let i = 0; i < vocab.length; i++) {
+    if (allowed.indexOf(vocab[i]) < 0) continue;
+    if (best < 0 || logits[i] > logits[best]) best = i;
+  }
+  return { index: best, token: vocab[best] };
+}
+
+/* 贪心语法约束生成：每步在允许的字符里取 logit 最大者；文法接受后停止。
+   语法只约束「生成的字符」，提示词不参与文法前缀（与 Python grammar_generate 一致）。 */
+function llmGrammarGenerate(m, ids, chars, grammar, maxTokens) {
+  if (!m || !m.cfg || !m.p) throw new Error("llmGrammarGenerate: 需要 llmCreate() 建的模型");
+  if (!Array.isArray(ids)) throw new Error("llmGrammarGenerate: ids 必须是数组");
+  if (!Array.isArray(chars) || chars.length !== m.cfg.vocabSize) {
+    throw new Error("llmGrammarGenerate: chars 必须是长度为词表大小的字符数组");
+  }
+  for (const ch of chars) {
+    if (typeof ch !== "string" || Array.from(ch).length !== 1) {
+      throw new Error("llmGrammarGenerate: 词表里只能有单个字符（收到 " + JSON.stringify(ch) + "）");
+    }
+  }
+  const n = maxTokens === undefined ? 16 : maxTokens;
+  if (!Number.isInteger(n) || n < 1) throw new Error("llmGrammarGenerate: max_tokens 必须是正整数");
+  const outIds = ids.slice();
+  const tokens = [];
+  const steps = [];
+  for (let s = 0; s < n; s++) {
+    if (tokens.length > 0 && llmGrammarAccepts(grammar, tokens)) break;
+    const ctx = outIds.slice(Math.max(0, outIds.length - m.cfg.maxLen));
+    const fwd = llmForward(m, ctx);
+    const row = fwd.logits[fwd.logits.length - 1];
+    const pick = llmGrammarPick(grammar, tokens, row, chars);
+    tokens.push(pick.token);
+    outIds.push(pick.index);
+    steps.push(pick.index);
+  }
+  return { ids: outIds, tokens: tokens, steps: steps, complete: llmGrammarAccepts(grammar, tokens) };
+}
+
+/* 采样版语法约束生成：把不允许的 logit 置 -Infinity，其余与 llmGenerate 的采样路径一致 */
+function llmConstrainedGenerate(m, ids, chars, grammar, n, temperature, topK, rand, topP, opts) {
+  if (!m || !m.cfg || !m.p) throw new Error("llmConstrainedGenerate: 需要 llmCreate() 建的模型");
+  if (!Array.isArray(ids)) throw new Error("llmConstrainedGenerate: ids 必须是数组");
+  if (!Array.isArray(chars) || chars.length !== m.cfg.vocabSize) {
+    throw new Error("llmConstrainedGenerate: chars 必须是长度为词表大小的字符数组");
+  }
+  const gen = llmGenOptions(opts);
+  if (temperature !== undefined && !(Number.isFinite(temperature) && temperature > 0)) {
+    throw new Error("temperature 必须 > 0（收到 " + temperature + "）");
+  }
+  let tp = 1;
+  if (topP !== undefined && topP !== null) {
+    if (!(Number.isFinite(topP) && topP > 0 && topP <= 1)) {
+      throw new Error("top_p 必须在 (0, 1] 内（收到 " + topP + "）");
+    }
+    tp = Math.min(1, topP);
+  }
+  const outIds = ids.slice();
+  const tokens = [];
+  for (let s = 0; s < n; s++) {
+    if (tokens.length > 0 && llmGrammarAccepts(grammar, tokens)) break;
+    const ctx = outIds.slice(Math.max(0, outIds.length - m.cfg.maxLen));
+    const fwd = llmForward(m, ctx);
+    let row = llmApplyPenalties(fwd.logits[fwd.logits.length - 1], outIds, gen);
+    const allowed = llmGrammarAllowed(grammar, tokens, chars);
+    if (!allowed.length) {
+      throw new Error("约束解码: 没有可用的下一个字符（文法在前缀 " + JSON.stringify(tokens) + " 处已无解）");
+    }
+    row = row.map(function (v, i) { return allowed.indexOf(chars[i]) >= 0 ? v : -Infinity; });
+    const picked = llmSampleToken(row, temperature, topK, tp, rand, gen.minP, gen.filters);
+    tokens.push(chars[picked]);
+    outIds.push(picked);
+  }
+  return { ids: outIds, tokens: tokens, complete: llmGrammarAccepts(grammar, tokens) };
+}
+
+/* ---------------- Prompt / KV cache 的增量前向（单层模型） ----------------
+   `llmForwardStep` 与 `llmForward(m, ctx).logits[T-1]` 逐位一致（窗口没有滑动、
+   位置不变时才成立；滑动时调用方要重建缓存，见 `llmGenerateCached`）。
+   缓存直接复用 `llmPrefixCache(1, dModel)` 的数据结构：每层两张 (len, d) 行表。 */
+
+function llmForwardStep(m, tokenId, pos, c) {
+  const { vocabSize: V, dModel: d, heads: H, dff: F, dh } = m.cfg;
+  if (!Number.isInteger(tokenId) || tokenId < 0 || tokenId >= V) {
+    throw new Error("llmForwardStep: token id 非法（" + tokenId + "），必须在 [0, " + V + ") 内");
+  }
+  if (!Number.isInteger(pos) || pos < 0 || pos >= m.cfg.maxLen) {
+    throw new Error("llmForwardStep: pos 必须在 [0, maxLen=" + m.cfg.maxLen + ") 内（收到 " + pos + "）");
+  }
+  if (!c || !Array.isArray(c.keys) || !Array.isArray(c.values) || c.numLayers !== 1 || c.dModel !== d) {
+    throw new Error("llmForwardStep: 缓存必须是 llmPrefixCache(1, dModel=" + d + ") 的返回值");
+  }
+  if (c.keys[0].length !== pos) {
+    throw new Error("llmForwardStep: 缓存长度 " + c.keys[0].length + " 与 pos " + pos + " 不一致（位置必须从 0 起严格递增）");
+  }
+  const p = m.p;
+  const x = addVec(p.E[tokenId], m.PE[pos]);
+  const ln1 = lnForward(x, p.ln1g, p.ln1b);
+  const a = ln1.y;
+  const q = addVec(mv(p.Wq, a), p.bq);
+  const k = addVec(mv(p.Wk, a), p.bk);
+  const vv = addVec(mv(p.Wv, a), p.bv);
+  c.keys[0].push(k.slice());
+  c.values[0].push(vv.slice());
+
+  const T = pos + 1;
+  const scale = Math.sqrt(dh);
+  const win = m.cfg.window | 0;
+  const lo = win > 0 ? Math.max(0, pos - win + 1) : 0;
+  const concat = new Array(d).fill(0);
+  for (let h = 0; h < H; h++) {
+    const off = h * dh;
+    const row = new Array(T).fill(-Infinity);
+    for (let j = lo; j <= pos; j++) {
+      let s = 0;
+      const kh = c.keys[0][j];
+      for (let u = 0; u < dh; u++) s += q[off + u] * kh[off + u];
+      row[j] = s / scale;
+    }
+    const aw = softmaxRow(row);
+    const o = new Array(dh).fill(0);
+    for (let j = lo; j <= pos; j++) {
+      const wgt = aw[j];
+      if (wgt === 0) continue;
+      const vh = c.values[0][j];
+      for (let u = 0; u < dh; u++) o[u] += wgt * vh[off + u];
+    }
+    for (let u = 0; u < dh; u++) concat[off + u] = o[u];
+  }
+
+  const proj = addVec(mv(p.Wo, concat), p.bo);
+  const h1 = addVec(x, proj);
+  const ln2 = lnForward(h1, p.ln2g, p.ln2b);
+  const pre = addVec(mv(p.W1, ln2.y), p.b1);
+  const act = pre.map(z => (z > 0 ? z : 0));
+  const fout = addVec(mv(p.W2, act), p.b2);
+  const h2 = addVec(h1, fout);
+  const logits = addVec(mv(p.Wout, h2), p.bout);
+  for (let i = 0; i < V; i++) {
+    if (!Number.isFinite(logits[i])) {
+      throw new Error("llmForwardStep: logits 含 NaN/Inf（参数可能已损坏）");
+    }
+  }
+  return logits;
+}
+
+/* KV cache 版生成：先整段预填充，之后每个新 token 只做单步前向；
+   窗口滑动（上下文超过 maxLen）时位置整体左移，旧缓存作废 → 按新窗口重建一次。
+   与 `llmGenerate` 在同样 rand/参数下逐个 token 相同。 */
+function llmGenerateCached(m, ids, n, temperature, topK, rand, topP, opts) {
+  if (!m || !m.cfg || !m.p) throw new Error("llmGenerateCached: 需要 llmCreate() 建的模型");
+  if (!Array.isArray(ids) || !ids.length) throw new Error("llmGenerateCached: ids 必须是非空数组");
+  if (!Number.isInteger(n) || n < 0) throw new Error("llmGenerateCached: n 必须是非负整数");
+  const gen = llmGenOptions(opts);
+  if (temperature !== undefined && !(Number.isFinite(temperature) && temperature > 0)) {
+    throw new Error("temperature 必须 > 0（收到 " + temperature + "）");
+  }
+  let tp = 1;
+  if (topP !== undefined && topP !== null) {
+    if (!(Number.isFinite(topP) && topP > 0 && topP <= 1)) {
+      throw new Error("top_p 必须在 (0, 1] 内（收到 " + topP + "）");
+    }
+    tp = Math.min(1, topP);
+  }
+
+  const maxLen = m.cfg.maxLen;
+  const out = ids.slice();
+  let window = out.slice(Math.max(0, out.length - maxLen));
+  let cache = llmPrefixCache(1, m.cfg.dModel);
+  let pos = 0;
+  let logits = null;
+  const stats = { prefill: window.length, steps: 0, rebuilds: 0 };
+  for (const tok of window) {
+    logits = llmForwardStep(m, tok, pos, cache);
+    pos += 1;
+    stats.steps += 1;
+  }
+  for (let s = 0; s < n; s++) {
+    const row = logits === null ? null : llmApplyPenalties(logits, out, gen);
+    if (row === null) throw new Error("llmGenerateCached: 空提示无法生成");
+    const pick = llmSampleToken(row, temperature, topK, tp, rand, gen.minP, gen.filters);
+    out.push(pick);
+    const nextWindow = out.slice(Math.max(0, out.length - maxLen));
+    if (nextWindow.length === window.length + 1) {
+      logits = llmForwardStep(m, pick, pos, cache);
+      pos += 1;
+      stats.steps += 1;
+    } else {
+      cache = llmPrefixCache(1, m.cfg.dModel);
+      pos = 0;
+      for (const tok of nextWindow) {
+        logits = llmForwardStep(m, tok, pos, cache);
+        pos += 1;
+        stats.steps += 1;
+      }
+      stats.rebuilds += 1;
+    }
+    window = nextWindow;
+  }
+  return { ids: out, stats: stats };
+}
+
 /* ---------------- 模型存档（JSON：format + config + 词表 + 参数） ---------------- */
 const LLM_WEB_FORMAT = "llm_web_v1";
 
@@ -5836,6 +6673,39 @@ function llmImportModel(obj) {
     });
   }
 
+  /* 对比搜索的 top_k / alpha：非法输入直接报错，不静默钳位 */
+  function llmReadTopK() {
+    const el = $id("llmTopK");
+    const v = parseInt(el && el.value, 10);
+    if (!Number.isInteger(v) || v < 1) {
+      throw new Error("对比 top_k 必须是正整数（收到「" + (el ? el.value : "") + "」）");
+    }
+    return v;
+  }
+
+  function llmReadAlpha() {
+    const el = $id("llmAlpha");
+    const v = parseFloat(el && el.value);
+    if (!Number.isFinite(v) || v < 0 || v > 1) {
+      throw new Error("对比 alpha 必须在 [0,1] 内（收到「" + (el ? el.value : "") + "」）");
+    }
+    return v;
+  }
+
+  /* 提示词：只保留词表里有的字符；空提示退回第一个字符；超长截到 maxLen。
+     普通续写 / 对比搜索 / 约束解码共用。 */
+  function llmReadPrompt() {
+    const promptEl = $id("llmPrompt");
+    const raw = Array.from(promptEl ? promptEl.value : "");
+    let prompt = raw.filter(c => llmChars.indexOf(c) >= 0);
+    if (prompt.length === 0) {
+      prompt = [llmChars[0]];
+      if (promptEl) promptEl.value = llmChars[0];
+    }
+    prompt = prompt.slice(-llmModel.cfg.maxLen);
+    return { prompt: prompt, ids: prompt.map(c => llmChars.indexOf(c)) };
+  }
+
   function llmStartTraining() {
     if (llmBusy) return;
     const corpusEl = $id("llmCorpus");
@@ -5862,8 +6732,11 @@ function llmImportModel(obj) {
 
     llmBusy = true;
     const trainBtn = $id("llmTrainBtn"), genBtn = $id("llmGenBtn");
+    const contrastiveBtn = $id("llmContrastiveBtn"), constraintBtn = $id("llmConstraintBtn");
     if (trainBtn) trainBtn.disabled = true;
     if (genBtn) genBtn.disabled = true;
+    if (contrastiveBtn) contrastiveBtn.disabled = true;
+    if (constraintBtn) constraintBtn.disabled = true;
 
     const t0 = performance.now();
     let ep = 0, first = 0, last = 0;
@@ -5880,6 +6753,8 @@ function llmImportModel(obj) {
       llmBusy = false;
       if (trainBtn) trainBtn.disabled = false;
       if (genBtn) genBtn.disabled = false;
+      if (contrastiveBtn) contrastiveBtn.disabled = false;
+      if (constraintBtn) constraintBtn.disabled = false;
       const saveBtn = $id("llmSaveBtn");
       if (saveBtn) saveBtn.disabled = false;
       const finalLoss = llmForward(llmModel, ids).loss;   /* 用训练后的权重复算平均交叉熵 */
@@ -5903,14 +6778,7 @@ function llmImportModel(obj) {
   function llmGenerateOnce() {
     if (llmBusy) { llmUI("正在训练，请稍候"); return; }
     if (!llmModel) { llmUI("请先训练语言模型"); return; }
-    const promptEl = $id("llmPrompt");
-    const raw = Array.from(promptEl ? promptEl.value : "");
-    let prompt = raw.filter(c => llmChars.indexOf(c) >= 0);
-    if (prompt.length === 0) {
-      prompt = [llmChars[0]];
-      if (promptEl) promptEl.value = llmChars[0];
-    }
-    prompt = prompt.slice(-llmModel.cfg.maxLen);
+    const { ids } = llmReadPrompt();
 
     const n = llmInt("llmNew", 24, 1, 400);
     const temp = llmFloat("llmTemp", 0.8, 0.1, 2);
@@ -5922,17 +6790,104 @@ function llmImportModel(obj) {
       llmUI(e.message);
       return;
     }
-    const ids = prompt.map(c => llmChars.indexOf(c));
-    let out;
+    const rand = llmSeedRng((Date.now() & 0x7fffffff) >>> 0);
+    const cacheEl = $id("llmUseCache");
+    let out, cacheInfo = "";
     try {
-      out = llmGenerate(llmModel, ids, n, temp, 0,
-        llmSeedRng((Date.now() & 0x7fffffff) >>> 0), topP, genOpts);
+      if (cacheEl && cacheEl.checked) {
+        /* 勾选「用 KV 缓存」：预填充一次，之后每个 token 只做单步前向 */
+        const r = llmGenerateCached(llmModel, ids, n, temp, 0, rand, topP, genOpts);
+        out = r.ids;
+        cacheInfo = " · KV 缓存 prefill " + r.stats.prefill + " / 步进 " + r.stats.steps +
+          " / 重建 " + r.stats.rebuilds;
+      } else {
+        out = llmGenerate(llmModel, ids, n, temp, 0, rand, topP, genOpts);
+      }
     } catch (e) {
       llmUI(e.message);                    /* 非法 min_p / 惩罚 / ngram 在面板内报错 */
       return;
     }
     const outEl = $id("llmOut");
     if (outEl) outEl.textContent = out.map(i => llmChars[i]).join("");
+    if (cacheInfo) {
+      const stats = $id("llmStats");
+      if (stats) stats.textContent += cacheInfo;
+    }
+  }
+
+  /* 对比搜索：每步对 top-k 候选各前向一次拿候选自己的隐状态，再用相似度惩罚挑 token。
+     代价是每生成一个字符要 top_k+1 次前向（比普通续写慢一个数量级）。 */
+  function llmContrastiveOnce() {
+    if (llmBusy) { llmUI("正在训练，请稍候"); return; }
+    if (!llmModel) { llmUI("请先训练语言模型"); return; }
+    let topK, alpha;
+    try {
+      topK = llmReadTopK();
+      alpha = llmReadAlpha();
+    } catch (e) {
+      llmUI(e.message);
+      return;
+    }
+    const { ids } = llmReadPrompt();
+    const n = llmInt("llmNew", 24, 1, 400);
+    let r;
+    try {
+      r = llmContrastiveSearch(llmModel, ids, n, topK, alpha);
+    } catch (e) {
+      llmUI(e.message);
+      return;
+    }
+    const outEl = $id("llmOut");
+    if (outEl) outEl.textContent = r.ids.map(i => llmChars[i]).join("");
+    const stats = $id("llmStats");
+    if (stats) {
+      stats.textContent = "对比搜索 · top_k " + topK + " · alpha " + alpha +
+        " · 前向 " + r.forwards + " 次 / 生成 " + (r.ids.length - ids.length) + " 字符";
+    }
+  }
+
+  /* 语法约束解码：json = 字符级完整 JSON 文法；其余按正则整段匹配。
+     采样版把不允许字符的 logit 置 -Infinity，惩罚 / top_p / min_p 等照常生效。 */
+  function llmConstraintOnce() {
+    if (llmBusy) { llmUI("正在训练，请稍候"); return; }
+    if (!llmModel) { llmUI("请先训练语言模型"); return; }
+    const el = $id("llmConstraint");
+    const raw = String(el ? el.value : "").trim();
+    if (!raw) { llmUI("约束不能为空：填 json 或一个正则"); return; }
+    let grammar;
+    try {
+      grammar = raw.toLowerCase() === "json" ? llmJsonCharGrammar() : llmRegexGrammar(raw);
+    } catch (e) {
+      llmUI("约束文法非法：" + (e && e.message ? e.message : e));
+      return;
+    }
+    const n = llmInt("llmNew", 24, 1, 400);
+    const temp = llmFloat("llmTemp", 0.8, 0.1, 2);
+    const topP = llmFloat("llmTopP", 1, 0.1, 1);
+    let genOpts;
+    try {
+      genOpts = llmReadGenOptions();
+    } catch (e) {
+      llmUI(e.message);
+      return;
+    }
+    const { ids } = llmReadPrompt();
+    let r;
+    try {
+      r = llmConstrainedGenerate(llmModel, ids, llmChars, grammar, n, temp, 0,
+        llmSeedRng((Date.now() & 0x7fffffff) >>> 0), topP, genOpts);
+    } catch (e) {
+      llmUI(e.message);
+      return;
+    }
+    const outEl = $id("llmOut");
+    if (outEl) outEl.textContent = r.tokens.join("");
+    const stats = $id("llmStats");
+    if (stats) {
+      stats.textContent = "约束解码 · " + (raw.toLowerCase() === "json" ? "JSON 文法" : "正则 " + raw) +
+        " · " + r.tokens.length + " 字符" +
+        (r.complete ? " · 已收尾" : " · 未收尾（可调大续写长度）");
+    }
   }
 
   function llmSaveModel() {
@@ -5980,6 +6935,9 @@ function llmImportModel(obj) {
       const genBtn = $id("llmGenBtn"), saveBtn = $id("llmSaveBtn");
       if (genBtn) genBtn.disabled = false;
       if (saveBtn) saveBtn.disabled = false;
+      const contrastiveBtn = $id("llmContrastiveBtn"), constraintBtn = $id("llmConstraintBtn");
+      if (contrastiveBtn) contrastiveBtn.disabled = false;
+      if (constraintBtn) constraintBtn.disabled = false;
       const stats = $id("llmStats");
       if (stats) {
         stats.textContent = "已加载模型 / 词表 " + llmChars.length + " / 参数 " +
@@ -5994,10 +6952,13 @@ function llmImportModel(obj) {
 
   (function bindLLMButtons() {
     const t = $id("llmTrainBtn"), g = $id("llmGenBtn");
+    const cv = $id("llmContrastiveBtn"), cb = $id("llmConstraintBtn");
     const sv = $id("llmSaveBtn"), ld = $id("llmLoadBtn"), lf = $id("llmLoadFile");
     if (t) t.addEventListener("click", llmStartTraining);
     if (g) g.addEventListener("click", llmGenerateOnce);
     if (g) g.disabled = true;
+    if (cv) { cv.disabled = true; cv.addEventListener("click", llmContrastiveOnce); }
+    if (cb) { cb.disabled = true; cb.addEventListener("click", llmConstraintOnce); }
     if (sv) { sv.disabled = true; sv.addEventListener("click", llmSaveModel); }
     if (ld && lf) ld.addEventListener("click", () => { if (lf.click) lf.click(); });
     if (lf) lf.addEventListener("change", () => {

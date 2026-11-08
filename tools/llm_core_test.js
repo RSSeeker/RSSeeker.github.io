@@ -463,6 +463,16 @@ async function run() {
 
   testPrefixCache(L, r);
 
+  testContrastive(L, r);
+
+  testRegexGrammar(L, r);
+
+  testCfgGrammar(L, r);
+
+  testCharJsonGrammar(L, r);
+
+  testIncrementalForward(L, r);
+
   return { checks: r.checks, failures: r.failures };
 }
 
@@ -637,4 +647,333 @@ function testPrefixCache(L, r) {
     JSON.stringify(L.llmCacheGet(py, 0).keys) === "[[1,2],[5,6]]" &&
     JSON.stringify(L.llmCacheGet(py, 0).values) === "[[3,4],[7,8]]",
     JSON.stringify(L.llmCacheGet(py, 0)));
+}
+
+/* ---------------- 新增测试用的小工具 ---------------- */
+
+function tThrowsMsg(fn, needle) {
+  try {
+    fn();
+    return false;
+  } catch (e) {
+    return e instanceof Error && e.message.indexOf(needle) >= 0;
+  }
+}
+
+function tEqBits(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/* 对比搜索（Python contrastive_select / contrastive_search 的 JS 版） */
+function testContrastive(L, r) {
+  r.section("9. 对比搜索（contrastive search）");
+
+  /* 打分：score = (1−α)·p − α·reward；reward = 候选与历史隐状态的最大余弦 */
+  const lg = [1.0, 1.0, 1.0];
+  const hist = [[1, 0]];
+  const hiddens = { 0: [1, 0], 1: [0, 1], 2: [0, 1] };
+  const pick1 = L.llmContrastiveSelect(lg, hiddens, hist, 0.5, 2);
+  r.ok("top-2 候选是 {0,1}", eqArr(pick1.candidates.map(function (c) { return c.token; }), [0, 1]),
+    JSON.stringify(pick1.candidates.map(function (c) { return c.token; })));
+  const c0 = pick1.candidates[0], c1 = pick1.candidates[1];
+  r.ok("候选 0 与历史同向 → reward=1", Math.abs(c0.reward - 1) < 1e-15, String(c0.reward));
+  r.ok("候选 1 与历史正交 → reward=0", Math.abs(c1.reward) < 1e-15, String(c1.reward));
+  r.ok("score 公式 (1−α)p − α·reward",
+    Math.abs(c0.score - (0.5 * (1 / 3) - 0.5 * 1)) < 1e-15 &&
+    Math.abs(c1.score - (0.5 * (1 / 3) - 0.5 * 0)) < 1e-15,
+    JSON.stringify([c0.score, c1.score]));
+  r.ok("alpha=0.5 时挑低相似度候选", pick1.token === 1, String(pick1.token));
+
+  const pick2 = L.llmContrastiveSelect(lg, hiddens, hist, 0, 2);
+  r.ok("alpha=0 退化为按概率（同分保留较小 token）", pick2.token === 0, String(pick2.token));
+  const pick3 = L.llmContrastiveSelect(lg, hiddens, hist, 1, 2);
+  r.ok("alpha=1 只看相似度（挑 reward 更小的）", pick3.token === 1, String(pick3.token));
+
+  const pickK1 = L.llmContrastiveSelect([0.1, 0.2, 0.3], hiddens, [], 0.6, 1);
+  r.ok("top_k=1 只保留概率最高的候选", pickK1.token === 2 && pickK1.candidates.length === 1,
+    JSON.stringify(pickK1));
+
+  const z = L.llmContrastiveSelect([1, 1], { 0: [0, 0], 1: [1, 0] }, [[1, 0]], 0.5, 2);
+  r.ok("零向量隐状态 reward=0（不除零）且不被惩罚选中",
+    z.token === 0 && Math.abs(z.candidates[0].reward) < 1e-15, JSON.stringify(z));
+
+  r.ok("alpha 越界 / top_k 非正 / hiddens 空 / 缺候选 / 宽度不一致 都报错",
+    tThrowsMsg(function () { L.llmContrastiveSelect(lg, hiddens, hist, 1.5, 2); }, "alpha") &&
+    tThrowsMsg(function () { L.llmContrastiveSelect(lg, hiddens, hist, -0.1, 2); }, "alpha") &&
+    tThrowsMsg(function () { L.llmContrastiveSelect(lg, hiddens, hist, 0.5, 0); }, "top_k") &&
+    tThrowsMsg(function () { L.llmContrastiveSelect(lg, {}, hist, 0.5, 2); }, "hiddens") &&
+    tThrowsMsg(function () { L.llmContrastiveSelect([1, 1, 1, 1], { 0: [1, 0] }, hist, 0.5, 2); }, "缺少候选") &&
+    tThrowsMsg(function () { L.llmContrastiveSelect(lg, { 0: [1, 0, 0], 1: [0, 1], 2: [0, 1] }, hist, 0.5, 2); }, "宽度"));
+
+  /* 生成：top_k=1 等价贪心；top_k=2 每步前向 top_k+1 次 */
+  const cm = L.llmCreate({ vocabSize: 5, dModel: 4, heads: 2, dff: 6, maxLen: 8, rand: L.llmSeedRng(777) });
+  const ids0 = [1, 2];
+  const cs1 = L.llmContrastiveSearch(cm, ids0, 3, 1, 0.6);
+  r.ok("top_k=1 返回 3 个新 token 与 3 条 picks",
+    cs1.ids.length === 5 && cs1.picks.length === 3, JSON.stringify(cs1.ids));
+
+  let ctx = ids0.slice(), greedyOk = true;
+  for (let s = 0; s < 3; s++) {
+    const row = L.llmForward(cm, ctx).logits;
+    const lastRow = row[row.length - 1];
+    let best = 0;
+    for (let i = 1; i < lastRow.length; i++) if (lastRow[i] > lastRow[best]) best = i;
+    if (cs1.ids[s + ids0.length] !== best) { greedyOk = false; break; }
+    ctx.push(best);
+  }
+  r.ok("top_k=1 逐步等于 argmax（与整段前向复核）", greedyOk, JSON.stringify(cs1.ids));
+  r.ok("前向次数 = 1 + 步数 × top_k", cs1.forwards === 4, String(cs1.forwards));
+
+  const cs2 = L.llmContrastiveSearch(cm, ids0, 2, 2, 0.6);
+  r.ok("picks 带 score/prob/reward 且 token 与 ids 对应",
+    cs2.picks.every(function (pk, i) {
+      return pk.token === cs2.ids[ids0.length + i] &&
+        typeof pk.score === "number" && typeof pk.prob === "number" && typeof pk.reward === "number";
+    }),
+    JSON.stringify(cs2.picks));
+  r.ok("top_k=2 时前向次数 = 1 + 2×2", cs2.forwards === 5, String(cs2.forwards));
+  r.ok("reward 是余弦相似度，落在 [-1,1]", cs2.picks.every(function (pk) { return pk.reward >= -1 && pk.reward <= 1; }),
+    JSON.stringify(cs2.picks.map(function (pk) { return pk.reward; })));
+
+  r.ok("生成入口的错误路径都报错",
+    tThrowsMsg(function () { L.llmContrastiveSearch(cm, ids0, 2, 2, 1.5); }, "alpha") &&
+    tThrowsMsg(function () { L.llmContrastiveSearch(cm, ids0, 0, 1, 0.6); }, "max_new_tokens") &&
+    tThrowsMsg(function () { L.llmContrastiveSearch(cm, ids0, 2, 0, 0.6); }, "top_k") &&
+    tThrowsMsg(function () { L.llmContrastiveSearch(cm, [], 2, 1, 0.6); }, "ids") &&
+    tThrowsMsg(function () { L.llmContrastiveSearch(cm, [1, 2, 3, 4, 5, 6, 7], 3, 1, 0.6); }, "maxLen") &&
+    tThrowsMsg(function () { L.llmContrastiveSearch(cm, [1, 2], 7, 1, 0.6); }, "maxLen"));
+}
+
+/* 正则约束解码（Thompson NFA，整段匹配，ASCII 字符类语义） */
+function testRegexGrammar(L, r) {
+  r.section("10. 正则约束解码（Thompson NFA）");
+
+  const g = L.llmRegexGrammar("a[bc]+d");
+  r.ok("匹配 abd", L.llmRegexAccepts(g, ["a", "b", "d"]));
+  r.ok("匹配 abcd", L.llmRegexAccepts(g, ["a", "b", "c", "d"]));
+  r.ok("拒绝 ad（+ 至少吃一个）", !L.llmRegexAccepts(g, ["a", "d"]));
+  r.ok("拒绝 ab（还没有收尾 d）", !L.llmRegexAccepts(g, ["a", "b"]));
+  r.ok("拒绝多字符 token（按单字符推进）", !L.llmRegexAccepts(g, ["ab"]));
+  r.ok("拒绝多吃的 abd x", !L.llmRegexAccepts(g, ["a", "b", "d", "x"]));
+
+  r.ok("空前缀可行", L.llmRegexViable(g, []));
+  r.ok("非法前缀不可行", !L.llmRegexViable(g, ["x"]));
+  r.ok("收尾后仍视为可行（已经能匹配）", L.llmRegexViable(g, ["a", "b", "d"]));
+
+  const vocab = L.llmRegexChoices();
+  r.ok("choices 是 32..126 的 95 个字符", vocab.length === 95 && vocab[0] === " " && vocab[94] === "~",
+    vocab.length + " 个");
+  r.ok("空前缀只允许 a",
+    tEqBits(L.llmRegexAllowed(g, [], vocab), ["a"]), JSON.stringify(L.llmRegexAllowed(g, [], vocab)));
+  r.ok("a 之后允许 b/c",
+    tEqBits(L.llmRegexAllowed(g, ["a"], vocab).slice().sort(), ["b", "c"]),
+    JSON.stringify(L.llmRegexAllowed(g, ["a"], vocab)));
+  r.ok("ab 之后允许 b/c/d",
+    tEqBits(L.llmRegexAllowed(g, ["a", "b"], vocab).slice().sort(), ["b", "c", "d"]),
+    JSON.stringify(L.llmRegexAllowed(g, ["a", "b"], vocab)));
+  r.ok("收尾后没有可接字符", L.llmRegexAllowed(g, ["a", "b", "d"], vocab).length === 0);
+  r.ok("不可行前缀允许集为空", L.llmRegexAllowed(g, ["x"], vocab).length === 0);
+
+  const mask = L.llmGrammarMask(g, [], vocab);
+  r.ok("mask 与 allowed 一致",
+    mask.length === vocab.length && mask[vocab.indexOf("a")] === true &&
+    mask[vocab.indexOf("b")] === false, JSON.stringify(mask.length));
+  const pickLogits = vocab.map(function (c) { return c === "b" ? 9 : (c === "a" ? 1 : 0); });
+  const pk = L.llmGrammarPick(g, [], pickLogits, vocab);
+  r.ok("pick 跳过不允许的高分字符（b 不可用则选 a）", pk.token === "a", pk.token);
+  r.ok("pick 无解时报错",
+    tThrowsMsg(function () { L.llmGrammarPick(g, ["a", "b", "d"], vocab.map(function () { return 0; }), vocab); },
+      "没有可用"));
+
+  const gd = L.llmRegexGrammar("\\d+");
+  r.ok("\\d+ 匹配 005", L.llmRegexAccepts(gd, Array.from("005")));
+  r.ok("\\d+ 拒绝字母", !L.llmRegexAccepts(gd, Array.from("a5")));
+  r.ok("\\d 是 ASCII 数字（阿拉伯数字 ٣ 不算）", !L.llmRegexAccepts(gd, ["٣"]));
+
+  const gw = L.llmRegexGrammar("\\w\\d");
+  r.ok("\\w 是 ASCII 字母数字（下划线不算）",
+    L.llmRegexAccepts(gw, ["a", "5"]) && L.llmRegexAccepts(gw, ["Z", "0"]) &&
+    !L.llmRegexAccepts(gw, ["_", "5"]));
+
+  const ga = L.llmRegexGrammar("(ab|cd)e");
+  r.ok("分组 + 分支", L.llmRegexAccepts(ga, ["a", "b", "e"]) && L.llmRegexAccepts(ga, ["c", "d", "e"]) &&
+    !L.llmRegexAccepts(ga, ["a", "d", "e"]));
+
+  const gr = L.llmRegexGrammar("[a-cx]?z");
+  r.ok("字符类区间与可选", L.llmRegexAccepts(gr, ["z"]) && L.llmRegexAccepts(gr, ["b", "z"]) &&
+    L.llmRegexAccepts(gr, ["x", "z"]) && !L.llmRegexAccepts(gr, ["d", "z"]));
+
+  const gn = L.llmRegexGrammar("[^a]");
+  r.ok("否定字符类", L.llmRegexAccepts(gn, ["b"]) && !L.llmRegexAccepts(gn, ["a"]) &&
+    !L.llmRegexAccepts(gn, ["ab"]));
+
+  r.ok("正则解析错误都报错",
+    tThrowsMsg(function () { L.llmRegexGrammar("a("); }, "分组") &&
+    tThrowsMsg(function () { L.llmRegexGrammar("[z-a]"); }, "区间") &&
+    tThrowsMsg(function () { L.llmRegexGrammar(5); }, "pattern") &&
+    tThrowsMsg(function () { L.llmRegexGrammar("a["); }, "没有闭合") &&
+    tThrowsMsg(function () { L.llmRegexState(g, ["x"]); }, "不可能匹配"));
+}
+
+/* CFG（Earley）约束解码 */
+function testCfgGrammar(L, r) {
+  r.section("11. CFG（Earley）约束解码");
+
+  const g = L.llmCfgGrammar({ S: [["a", "S", "b"], ["a", "b"]] }, "S");
+  r.ok("匹配 ab", L.llmCfgAccepts(g, ["a", "b"]));
+  r.ok("匹配 aabb", L.llmCfgAccepts(g, ["a", "a", "b", "b"]));
+  r.ok("匹配 aaabbb", L.llmCfgAccepts(g, ["a", "a", "a", "b", "b", "b"]));
+  r.ok("拒绝 aab", !L.llmCfgAccepts(g, ["a", "a", "b"]));
+  r.ok("拒绝 b", !L.llmCfgAccepts(g, ["b"]));
+  r.ok("空串不匹配", !L.llmCfgAccepts(g, []));
+  r.ok("accepts 也接受字符串输入", L.llmCfgAccepts(g, "ab"));
+
+  r.ok("expected 空前缀 = [a]",
+    tEqBits(L.llmCfgExpected(g, []), ["a"]), JSON.stringify(L.llmCfgExpected(g, [])));
+  r.ok("expected 在 a 之后 = [a,b]",
+    tEqBits(L.llmCfgExpected(g, ["a"]).slice().sort(), ["a", "b"]),
+    JSON.stringify(L.llmCfgExpected(g, ["a"])));
+  r.ok("allowed 在 a 之后可选 a/b",
+    tEqBits(L.llmCfgAllowed(g, ["a"], ["a", "b", "c"]).slice().sort(), ["a", "b"]),
+    JSON.stringify(L.llmCfgAllowed(g, ["a"], ["a", "b", "c"])));
+  r.ok("allowed 在完整 ab 之后为空（无法再延长）",
+    tEqBits(L.llmCfgAllowed(g, ["a", "b"], ["a", "b"]), []),
+    JSON.stringify(L.llmCfgAllowed(g, ["a", "b"], ["a", "b"])));
+
+  /* 谓词终结符 + 空产生式 */
+  const gp = L.llmCfgGrammar({ N: [[function (ch) { return /[0-9]/.test(ch); }, "N"], []] }, "N");
+  r.ok("谓词终结符匹配数字串", L.llmCfgAccepts(gp, ["1", "2", "3"]));
+  r.ok("空产生式匹配空串", L.llmCfgAccepts(gp, []));
+  r.ok("谓词终结符拒绝非数字", !L.llmCfgAccepts(gp, ["1", "x"]));
+
+  r.ok("CFG 错误路径都报错",
+    tThrowsMsg(function () { L.llmCfgGrammar({}, "S"); }, "起始符号") &&
+    tThrowsMsg(function () { L.llmCfgGrammar({ A: [["x"]] }, "S"); }, "起始符号") &&
+    tThrowsMsg(function () { L.llmCfgGrammar({ S: "x" }, "S"); }, "右部") &&
+    tThrowsMsg(function () { L.llmCfgChart({ kind: "regex" }, []); }, "llmCfgGrammar") &&
+    tThrowsMsg(function () { L.llmCfgAllowed(g, [], "abc"); }, "vocab"));
+}
+
+/* 字符级完整 JSON 文法（结构 + 转义 + 数字；不含 JSON Schema 校验） */
+function testCharJsonGrammar(L, r) {
+  r.section("12. 字符级 JSON 文法约束");
+
+  const g = L.llmJsonCharGrammar();
+  r.ok("accepts {\"a\":1}", L.llmGrammarAccepts(g, Array.from('{"a":1}')));
+  r.ok("accepts {}", L.llmGrammarAccepts(g, Array.from("{}")));
+  r.ok("accepts []", L.llmGrammarAccepts(g, Array.from("[]")));
+  r.ok("accepts 嵌套值", L.llmGrammarAccepts(g, Array.from('[{"a":[]},true,null,-2.5e+3]')));
+  r.ok("accepts 带转义的字符串",
+    L.llmGrammarAccepts(g, ['"', "a", "\\", "u", "0", "0", "4", "1", '"']));
+  r.ok("accepts 简单字符串", L.llmGrammarAccepts(g, Array.from('"hello"')));
+
+  r.ok("拒绝尾逗号", !L.llmGrammarAccepts(g, Array.from('{"a":1,}')));
+  r.ok("拒绝裸键", !L.llmGrammarAccepts(g, Array.from("{a:1}")));
+  r.ok("拒绝单引号", !L.llmGrammarAccepts(g, Array.from("{'a':1}")));
+  r.ok("拒绝前导零 01", !L.llmGrammarAccepts(g, Array.from("01")));
+  r.ok("拒绝单独的 -", !L.llmGrammarAccepts(g, ["-"]));
+  r.ok("拒绝 .5", !L.llmGrammarAccepts(g, Array.from(".5")));
+  r.ok("拒绝 1.", !L.llmGrammarAccepts(g, Array.from("1.")));
+  r.ok("拒绝 1e", !L.llmGrammarAccepts(g, Array.from("1e")));
+  r.ok("拒绝 JSON 文本里的空白", !L.llmGrammarAccepts(g, Array.from(' {"a":1}')));
+  r.ok("拒绝控制字符直接进字符串",
+    !L.llmGrammarAccepts(g, ['"', String.fromCharCode(1), '"']));
+  r.ok("拒绝非法转义 \\q", !L.llmGrammarAccepts(g, ['"', "\\", "q", '"']));
+
+  const jv = ["{", "}", "[", "]", '"', ":", ",", "0", "1", "-", ".", "t", "r", "u", "e", "f", "a", "l", "s", "n"];
+  const startAllowed = L.llmGrammarAllowed(g, [], jv);
+  ["{", "[", '"', "-", "0", "1", "t", "f", "n"].forEach(function (c) {
+    r.ok("空前缀允许 " + JSON.stringify(c), startAllowed.indexOf(c) >= 0, JSON.stringify(startAllowed));
+  });
+  r.ok("空前缀不允许 }", startAllowed.indexOf("}") < 0, JSON.stringify(startAllowed));
+  r.ok("左花括号后允许键字符串或 }",
+    tEqBits(L.llmGrammarAllowed(g, ["{"], jv).slice().sort(), ['"', "}"]),
+    JSON.stringify(L.llmGrammarAllowed(g, ["{"], jv)));
+  const valueStart = L.llmGrammarAllowed(g, ["{", '"', "a", '"', ":"], jv);
+  ["{", "[", '"', "-", "0", "t", "f", "n"].forEach(function (c) {
+    r.ok("值起始位置允许 " + JSON.stringify(c), valueStart.indexOf(c) >= 0, JSON.stringify(valueStart));
+  });
+
+  /* 贪心生成：零参数模型（logits 全 0）→ 每个位置取词表里最低下标的允许字符。
+     词表以 { } 开头，所以会稳定生成 "{}" 并在文法接受后停止。 */
+  const chars = Array.from('{}[]:",-+.0123456789truefalsn');
+  const mz = L.llmCreate({ vocabSize: chars.length, dModel: 4, heads: 2, dff: 6, maxLen: 24, rand: L.llmSeedRng(9) });
+  Object.keys(mz.p).forEach(function (key) {
+    const W = mz.p[key];
+    if (Array.isArray(W) && Array.isArray(W[0])) {
+      W.forEach(function (row) { for (let i = 0; i < row.length; i++) row[i] = 0; });
+    } else if (Array.isArray(W)) {
+      for (let i = 0; i < W.length; i++) W[i] = 0;
+    }
+  });
+  const gen = L.llmGrammarGenerate(mz, [chars.indexOf("{")], chars, g, 16);
+  r.ok("贪心约束生成产出合法 JSON 并收尾",
+    gen.complete && JSON.stringify(gen.tokens) === '["{","}"]', JSON.stringify(gen.tokens));
+
+  /* 采样版：正则在 "ab" 上每一步都只有一个允许字符，生成结果确定 */
+  const chars4 = ["a", "b", "x", "c"];
+  const mr = L.llmCreate({ vocabSize: chars4.length, dModel: 4, heads: 2, dff: 6, maxLen: 8, rand: L.llmSeedRng(11) });
+  const cr = L.llmConstrainedGenerate(mr, [2], chars4, L.llmRegexGrammar("ab"), 4, 1.0, 0,
+    function () { return 0.5; }, 1);
+  r.ok("采样约束生成只产出 \"ab\"",
+    tEqBits(cr.tokens, ["a", "b"]) && cr.complete, JSON.stringify(cr.tokens));
+
+  r.ok("文法入口的错误路径都报错",
+    tThrowsMsg(function () { L.llmGrammarAllowed({ kind: "nope" }, [], jv); }, "无法识别") &&
+    tThrowsMsg(function () { L.llmGrammarAccepts(null, []); }, "需要") &&
+    tThrowsMsg(function () { L.llmGrammarMask(g, [], "abc"); }, "vocab") &&
+    tThrowsMsg(function () { L.llmGrammarPick(g, [], [1], ["a", "b"]); }, "长度"));
+}
+
+/* KV 缓存增量前向 / 生成（Python _forward_step / _generate_cached 的 JS 版） */
+function testIncrementalForward(L, r) {
+  r.section("13. KV 缓存增量前向 / 生成");
+
+  const mk = function (win) {
+    return L.llmCreate({ vocabSize: 5, dModel: 4, heads: 2, dff: 6, maxLen: 6, rand: L.llmSeedRng(12345), window: win });
+  };
+  const m = mk(0);
+  const ids = [1, 2, 3, 4];
+  let c = L.llmPrefixCache(1, m.cfg.dModel);
+  let diff = 0;
+  for (let pos = 0; pos < ids.length; pos++) {
+    const step = L.llmForwardStep(m, ids[pos], pos, c);
+    const full = L.llmForward(m, ids.slice(0, pos + 1)).logits[pos];
+    if (!tEqBits(step, full)) diff++;
+  }
+  r.ok("window=0 时单步前向与整段前向逐位一致", diff === 0, diff + " 处不同");
+
+  const mw = mk(2);
+  const wid = [1, 2, 3, 4, 0];
+  let cw = L.llmPrefixCache(1, mw.cfg.dModel);
+  let diffW = 0;
+  for (let pos = 0; pos < wid.length; pos++) {
+    const step = L.llmForwardStep(mw, wid[pos], pos, cw);
+    const full = L.llmForward(mw, wid.slice(0, pos + 1)).logits[pos];
+    if (!tEqBits(step, full)) diffW++;
+  }
+  r.ok("window=2 时单步前向与整段前向逐位一致", diffW === 0, diffW + " 处不同");
+
+  /* 不滑动：cached 生成与整段重算逐 token 相同 */
+  const a = L.llmGenerateCached(m, [1, 2], 4, 1.0, 0, function () { return 0.42; }, 1, {});
+  const b = L.llmGenerate(m, [1, 2], 4, 1.0, 0, function () { return 0.42; }, 1, {});
+  r.ok("cached 与整段生成逐 token 一致", tEqBits(a.ids, b), JSON.stringify([a.ids, b]));
+  r.ok("prefill/steps 统计（无重建）",
+    a.stats.prefill === 2 && a.stats.steps === 6 && a.stats.rebuilds === 0, JSON.stringify(a.stats));
+
+  /* 滑动：maxLen=4、续写 6 个 token，窗口每步左移 → 重建 4 次 */
+  const ms = L.llmCreate({ vocabSize: 5, dModel: 4, heads: 2, dff: 6, maxLen: 4, rand: L.llmSeedRng(4321), window: 0 });
+  const a2 = L.llmGenerateCached(ms, [1, 2], 6, 1.0, 0, function () { return 0.42; }, 1, {});
+  const b2 = L.llmGenerate(ms, [1, 2], 6, 1.0, 0, function () { return 0.42; }, 1, {});
+  r.ok("窗口滑动后 cached 仍与整段生成逐 token 一致", tEqBits(a2.ids, b2),
+    JSON.stringify([a2.ids, b2]));
+  r.ok("滑动触发缓存重建", a2.stats.rebuilds === 4 && a2.stats.prefill === 2, JSON.stringify(a2.stats));
+
+  r.ok("增量前向 / 生成的错误路径都报错",
+    tThrowsMsg(function () { L.llmForwardStep(m, 9, 0, L.llmPrefixCache(1, m.cfg.dModel)); }, "非法") &&
+    tThrowsMsg(function () { L.llmForwardStep(m, 1, 1, L.llmPrefixCache(1, m.cfg.dModel)); }, "不一致") &&
+    tThrowsMsg(function () { L.llmForwardStep(m, 1, 0, L.llmPrefixCache(2, m.cfg.dModel)); }, "缓存") &&
+    tThrowsMsg(function () { L.llmForwardStep(m, 1, 9, L.llmPrefixCache(1, m.cfg.dModel)); }, "pos") &&
+    tThrowsMsg(function () { L.llmGenerateCached(m, [], 2, 1, 0, function () { return 0.5; }); }, "ids") &&
+    tThrowsMsg(function () { L.llmGenerateCached(m, [1], -1, 1, 0, function () { return 0.5; }); }, "n"));
 }

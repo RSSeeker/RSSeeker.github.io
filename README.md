@@ -95,14 +95,20 @@
 | `llmCacheMerge(c, other)` | 追加另一个同形状缓存的全部层 |
 | `llmCacheToJSON(c)` / `llmCacheFromJSON(data)` | JSON 往返（可直接塞进存档） |
 | `llmCacheStats(c, promptLen)` / `llmCacheBars(stats, width)` | 每层 `{layer, len, reuse}` 与 ASCII 条形图 |
+| `llmForwardStep(m, tokenId, pos, c)` | 单 token 增量前向（复用同一份缓存结构） |
+| `llmGenerateCached(m, ids, n, temperature, topK, rand, topP, opts)` | 预填充 + 增量生成，返回 `{ids, stats: {prefill, steps, rebuilds}}` |
 
 行宽、有限数字、层号范围、合并时层数/维度一致、`truncate` 非负整数、`fromJSON` 的字段与
 层数都做校验——12 条非法输入在 `tools/llm_core_test.js` 里逐条断言会抛错。
 
-边界说清楚：页面的生成循环**没有**接这层缓存（仍然是每步整段重算，所以数值与重算逐位相同、
-但速度没有提升）。Python 与 C 版本都已经有真正的 KV cache（C 侧实测 20 倍），这里的
-数据结构是给「想自己做缓存实验」的人用的把手，`reuse` 也是相对 `promptLen` 的账面比例，
-不代表任何实测加速。
+缓存现在真的接进了生成循环：`llmForwardStep` 做单 token 增量前向，`llmGenerateCached` 先整段
+预填充、之后每步只前向一次；窗口（`maxLen`）滑动导致位置整体左移时旧缓存作废，会按新窗口重建
+一次（源码里记 `rebuilds`）。面板上的「用 KV 缓存」勾选走的就是这条路，统计行会显示
+`prefill / 步进 / 重建` 次数。
+
+数值上与整段重算**逐位一致**（`tools/llm_core_test.js` 有 `window=0` / `window=2` 的单步对比、
+cached 与普通生成的逐 token 对比，含滑动重建场景）；速度上仍是教学实现，不做基准承诺。
+Python 与 C 版本也都有真正的 KV cache（C 侧实测 20 倍）。
 
 ### 词表级 JSON 约束解码
 
@@ -126,8 +132,45 @@ state 是一个 `{ st, stack }` 对象，`stack` 记录当前嵌套的容器（`
 `llmJsonPick` 的三条错误路径，以及「随机 logits 走 300 次从不产生非法 token」的性质抽查。
 
 边界：这是**词表级**约束——词表里的每个元素被当成一个完整 token（`"a"`、`-2.5`、`true`、
-`{` 等）。页面本身的 LLM 是**字符级**生成的，没有把这一层接到生成循环里：字符级 JSON
-需要另写一套按字符推进的语法（字符串转义、数字的整数/小数/指数分段），目前没有做。
+`{` 等）。页面本身的 LLM 是**字符级**生成的，所以另外实现了按字符推进的语法器与约束解码（下一节），
+这一节的词表级解码器保留作对照。
+
+### 对比搜索（contrastive search）
+
+对应 Python 的 `AI.contrastive_select` / `AI.contrastive_search`：每步在概率 top-k 候选里用
+「候选自己的隐状态」与历史隐状态的最大余弦相似度做退化惩罚，`score = (1−α)·p − α·reward`，
+再取分数最高者。惩罚必须按候选各自的隐状态算——共用一个隐状态时所有候选同罚，选择会退化成
+argmax（`tools/llm_core_test.js` 专门断言这点）。
+
+| 函数 | 作用 |
+|---|---|
+| `llmContrastiveSelect(logits, hiddens, history, alpha, topK)` | 单步选择，返回 `{token, score, prob, reward, candidates}` |
+| `llmContrastiveSearch(m, ids, maxNewTokens, topK, alpha)` | 完整生成，返回 `{ids, picks, forwards}` |
+
+代价是每生成一个字符要做 `top_k` 次候选前向（比普通续写慢一个数量级），面板上「对比搜索」按钮
+与 `top_k` / `alpha` 两个输入会把这个代价显式写进统计行；提示 + 续写总长超过 `maxLen` 会直接报错
+（对比搜索不做窗口截断）。
+
+### 字符级语法约束解码（正则 / CFG / 字符级 JSON）
+
+对应 Python 的 `RegexGrammar` / `CFGGrammar` / `json_grammar()`，但按**字符**推进、接进了生成
+循环：每一步把语法不允许的字符 logit 置为 `-Infinity`，再走与普通生成相同的惩罚 / top_k /
+top_p / min_p 采样路径。
+
+| 函数 | 作用 |
+|---|---|
+| `llmRegexGrammar(pattern)` | 自写正则解析（字面量、`.`、`*+?`、`[abc]`、`[^abc]`、`\d`/`\w`/`\s`、`\|`、分组）+ Thompson NFA，整段匹配 |
+| `llmCfgGrammar(productions, start)` | Earley 解析器；右部可混用字符串终结符与谓词函数，支持空产生式 |
+| `llmJsonCharGrammar()` | 字符级完整 JSON 文法（对象 / 数组 / 字符串含转义 / 数字含整数小数指数 / true / false / null，紧凑形式） |
+| `llmGrammarAllowed` / `llmGrammarAccepts` / `llmGrammarMask` / `llmGrammarPick` | 正则 / CFG 通用入口 |
+| `llmGrammarGenerate(...)` / `llmConstrainedGenerate(...)` | 贪心 / 采样两种约束生成 |
+
+字符类按 ASCII 语义：这里 `\d` 只认 `0-9`、`\w` 只认 `[A-Za-z0-9]`（Python 的 `_w7e_char_predicate`
+用 `isdigit`/`isalnum`，更宽）。面板的「约束解码」输入框填 `json` 或一个正则，生成结果只含文法
+允许的字符。
+
+边界：**不包含 JSON Schema 校验**——与 Python 版边界一致（`README.md:2701` 明说「那需要
+JSON Schema 层，本库未实现」）；键去重、数字范围等语义仍由 `JSON.parse` 收尾校验。
   - `repetition_penalty`：已出现 token 的 logit 若为正则除以它，否则乘以它（`1` 关闭）。例如惩罚 `2` 会把 `2 → 1`、`-1 → -2`。
   - `presence_penalty`：每个出现过的 token 的 logit 减一次，不管出现几次（`0` 关闭）。
   - `frequency_penalty`：按出现次数扣，`logit -= frequency_penalty × 次数`（`0` 关闭）。
@@ -148,6 +191,7 @@ state 是一个 `{ st, stack }` 对象，`stack` 记录当前嵌套的容器（`
 | 神经网络 | 纯 JavaScript 手写，前向传播 + 反向传播 |
 | 架构模块 | 手写 CNN 1D / RNN / Multi-Head Self-Attention |
 | 语言模型 | 手写字符级因果 Transformer + Adam（前向、反向、采样全部在页面内） |
+| 生成控制 | 对比搜索、正则 / CFG / 字符级 JSON 约束解码、KV 缓存增量前向（与整段重算逐位一致） |
 | 采样 | 温度缩放 + top-k + nucleus（top_p）+ min_p，重复 / 存在 / 频率惩罚与禁重复 n-gram，语义与 Python 参考实现一致 |
 | 模型存档 | 参数 / 配置 / 词表序列化为 JSON，导入时校验 format、形状与数值 |
 | 优化器 | 手写 Adam / Momentum / RMSProp / SGD |
@@ -182,12 +226,18 @@ node tools/llm_page_check.js  # 只跑页面结构与伪 DOM
   - 滑动窗口：`window=2` 的因果性（改末位不影响前文）、`window=1` 只看自己、非法窗口被拒绝；
   - 中心有限差分梯度：`window=0` / `window=2` 各取 10 个参数，最差相对误差 ≤ 1e-8；
   - 困惑度 = `exp(平均交叉熵)`，`loss > 700` 给 `inf`；
-  - 存档往返：JSON 写读后参数 / 配置 / 词表逐位一致、生成一致；7 种非法存档都被拒绝并带中文错误。
+  - 存档往返：JSON 写读后参数 / 配置 / 词表逐位一致、生成一致；7 种非法存档都被拒绝并带中文错误；
+  - 对比搜索：候选打分公式、`alpha` 两端、`top_k` 约束、reward 取自候选自身隐状态、零向量不除零、
+    `top_k=1` 与整段前向复核的 argmax 逐步一致、前向次数与错误路径；
+  - 正则 / CFG / 字符级 JSON 文法：整段匹配、允许集与掩码、谓词终结符、空产生式、JSON 转义与数字
+    分段、非法串（尾逗号 / 裸键 / 前导零 / 空白）、贪心与采样约束生成、错误路径；
+  - 增量前向：`llmForwardStep` 与整段 `llmForward` 在 `window=0` / `window=2` 下逐位一致；
+    `llmGenerateCached` 与 `llmGenerate` 逐 token 一致（含滑动重建），并断言 prefill / steps / rebuilds。
 - **页面结构与 DOM 契约**（`tools/llm_page_check.js`）：
   - 两段内联 `<script>` 分别编译通过；
   - `div/span/button/textarea/table/select/option` 标签配平；
   - 所有 `id` 唯一，`$id(...)` / `document.getElementById` 引用的元素都存在；
-  - 在伪 DOM 中真正执行页面的 LLM 面板 IIFE，跑通「训练 → 自动生成 → `top_p=0.5` 再生成 → 五项控制留空 / 显式中性生成一致 → 惩罚 + `ngram=2` 生成 → 保存为 Blob → 非法 JSON 报错 → 加载存档 → 继续生成」，并验证窗口输入 `1.5` 报错、`min_p=1.5` / `ngram=1` / 非数值惩罚在面板内报错、缺少 `#llmWindow` 时退回全注意力。
+  - 在伪 DOM 中真正执行页面的 LLM 面板 IIFE，跑通「训练 → 自动生成 → `top_p=0.5` 再生成 → 五项控制留空 / 显式中性生成一致 → 惩罚 + `ngram=2` 生成 → 勾选 KV 缓存生成 → 对比搜索生成 → 语法约束解码生成 → 保存为 Blob → 非法 JSON 报错 → 加载存档 → 继续生成」，并验证窗口输入 `1.5` 报错、`min_p=1.5` / `ngram=1` / 非数值惩罚在面板内报错、对比 `top_k=0` / `alpha=1.5` 与非法约束文法在面板内报错、缺少 `#llmWindow` 时退回全注意力。
 
 `tools/fixtures/llm_baseline.json` 是引入 nucleus 采样 / 滑动窗口之前的旧实现黄金基线。除非**有意**修改数值算法，否则不要重新生成它；如果确实要改，请在提交信息里写明原因。
 

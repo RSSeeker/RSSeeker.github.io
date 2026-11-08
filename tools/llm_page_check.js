@@ -238,6 +238,55 @@ async function run() {
     r.ok("面板惩罚 + ngram=2 下仍生成且无重复二元组",
       outPen.length === 6 && panelNoRepeat, JSON.stringify(outPen));
 
+    /* ---------- 三项新能力接线：KV 缓存 / 对比搜索 / 语法约束 ---------- */
+    el("llmMinP").value = "0";
+    el("llmRepPenalty").value = "1";
+    el("llmPresence").value = "0";
+    el("llmFrequency").value = "0";
+    el("llmNgram").value = "0";
+    el("llmTemp").value = "1";
+    el("llmTopP").value = "1";
+    el("llmNew").value = "6";
+
+    el("llmUseCache").checked = true;
+    el("llmGenBtn").trigger("click");
+    r.ok("勾选 KV 缓存后生成正常", el("llmOut").textContent.length === 8,
+      JSON.stringify(el("llmOut").textContent));
+    r.ok("缓存统计写入统计行", el("llmStats").textContent.indexOf("KV 缓存 prefill") >= 0,
+      el("llmStats").textContent);
+    el("llmUseCache").checked = false;
+
+    el("llmTopK").value = "2";
+    el("llmAlpha").value = "0.5";
+    el("llmContrastiveBtn").trigger("click");
+    r.ok("对比搜索生成正常", el("llmOut").textContent.length === 8,
+      JSON.stringify(el("llmOut").textContent));
+    r.ok("对比搜索统计行", el("llmStats").textContent.indexOf("对比搜索") >= 0,
+      el("llmStats").textContent);
+    el("llmTopK").value = "0";
+    el("llmContrastiveBtn").trigger("click");
+    r.ok("对比 top_k=0 面板报错",
+      el("llmProgressText").textContent.indexOf("top_k") >= 0, el("llmProgressText").textContent);
+    el("llmTopK").value = "2";
+    el("llmAlpha").value = "1.5";
+    el("llmContrastiveBtn").trigger("click");
+    r.ok("对比 alpha=1.5 面板报错",
+      el("llmProgressText").textContent.indexOf("alpha") >= 0, el("llmProgressText").textContent);
+    el("llmAlpha").value = "0.6";
+
+    el("llmConstraint").value = "a(b|c)*";
+    el("llmConstraintBtn").trigger("click");
+    const outConstrained = el("llmOut").textContent;
+    r.ok("约束解码生成正常", outConstrained.length > 0 &&
+      Array.from(outConstrained).every(c => "abc".indexOf(c) >= 0), JSON.stringify(outConstrained));
+    r.ok("约束解码统计行", el("llmStats").textContent.indexOf("约束解码") >= 0,
+      el("llmStats").textContent);
+    el("llmConstraint").value = "a(";
+    el("llmConstraintBtn").trigger("click");
+    r.ok("非法约束文法面板报错",
+      el("llmProgressText").textContent.indexOf("约束文法非法") >= 0, el("llmProgressText").textContent);
+    el("llmConstraint").value = "json";
+
     /* 非法采样参数：面板内报错且不生成 */
     el("llmMinP").value = "1.5";
     el("llmGenBtn").trigger("click");
