@@ -459,6 +459,8 @@ async function run() {
     throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 1, { tft: 0 }), "tft", "tft=0") &&
     throwsMsg(() => L.llmGenerate(vm, [1], 2, 1, 0, () => 0.5, 1, { mirostatMu: -1 }), "mirostat", "mu=-1"));
 
+  testJsonGrammar(L, r);
+
   return { checks: r.checks, failures: r.failures };
 }
 
@@ -469,4 +471,99 @@ if (require.main === module) {
     res => { process.exitCode = summarize(res.checks, res.failures); },
     err => { console.log("FAIL 套件异常: " + (err && err.stack ? err.stack : err)); process.exitCode = 1; }
   );
+}
+
+/* 词表级 JSON 约束（Python grammar_allowed 的等价状态机） */
+function testJsonGrammar(L, r) {
+  const VOCAB = ["{", "}", "[", "]", ":", ",",
+    '"a"', '"b"', "1", "-2.5", "0", "true", "false", "null", "x"];
+  const CASES = [
+    { p: [], a: ['"a"', '"b"', "-2.5", "0", "1", "[", "false", "null", "true", "{"] },
+    { p: ["{"], a: ['"a"', '"b"', "}"] },
+    { p: ["{", '"a"'], a: [":"] },
+    { p: ["{", '"a"', ":"], a: ['"a"', '"b"', "-2.5", "0", "1", "[", "false", "null", "true", "{"] },
+    { p: ["{", '"a"', ":", "1"], a: [",", "}"] },
+    { p: ["{", '"a"', ":", "1", ","], a: ['"a"', '"b"'] },
+    { p: ["{", '"a"', ":", "1", "}"], a: [] },
+    { p: ["["], a: ['"a"', '"b"', "-2.5", "0", "1", "[", "]", "false", "null", "true", "{"] },
+    { p: ["[", "1"], a: [",", "]"] },
+    { p: ["[", "1", ","], a: ['"a"', '"b"', "-2.5", "0", "1", "[", "false", "null", "true", "{"] },
+    { p: ["[", "1", "]"], a: [] },
+    { p: ["[", "["], a: ['"a"', '"b"', "-2.5", "0", "1", "[", "]", "false", "null", "true", "{"] },
+    { p: ["{", '"a"', ":", "[", "true"], a: [",", "]"] },
+    { p: ["1"], a: [] },
+    { p: ["true"], a: [] },
+  ];
+
+  r.section("7. 词表级 JSON 约束解码（等价于 Python json_grammar）");
+
+  for (const c of CASES) {
+    let ctx = L.llmJsonStart();
+    let walked = true;
+    for (const tok of c.p) {
+      ctx = L.llmJsonStep(ctx, tok);
+      if (ctx === null) { walked = false; break; }
+    }
+    r.ok("前缀可走通 " + JSON.stringify(c.p), walked, "");
+    if (!walked) continue;
+    const got = L.llmJsonAllowed(ctx, VOCAB).slice().sort();
+    const want = c.a.slice().sort();
+    r.ok("允许集合 " + JSON.stringify(c.p),
+      JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got) + " vs " + JSON.stringify(want));
+    const mask = L.llmJsonMask(ctx, VOCAB);
+    let maskOk = mask.length === VOCAB.length;
+    for (let k = 0; k < VOCAB.length; k++) {
+      const inAllowed = c.a.indexOf(VOCAB[k]) >= 0;
+      if (mask[k] !== inAllowed) maskOk = false;
+    }
+    r.ok("掩码与集合一致 " + JSON.stringify(c.p), maskOk, JSON.stringify(mask));
+    r.ok("完成判定 " + JSON.stringify(c.p),
+      L.llmJsonComplete(ctx) === (c.a.length === 0), String(L.llmJsonComplete(ctx)));
+  }
+
+  const s0 = L.llmJsonStart();
+  r.ok("未知 token 返回 null", L.llmJsonStep(s0, "xyz") === null, "");
+  r.ok("顶层不能直接给 }", L.llmJsonStep(s0, "}") === null, "");
+  r.ok("键不能是数字", L.llmJsonStep({ st: "KEY", stack: [] }, "1") === null, "");
+  r.ok("token 必须字符串", L.llmJsonStep(s0, 42) === null, "");
+  r.ok("非法 ctx 抛错", (function () { try { L.llmJsonStep(null, "{"); return false; } catch (e) { return true; } })(), "");
+
+  let ctx = L.llmJsonStart();
+  const doc = ["{", '"a"', ":", "[", "1", ",", "true", "]", "}"];
+  let ok = true;
+  for (const tok of doc) {
+    ctx = L.llmJsonStep(ctx, tok);
+    if (ctx === null) { ok = false; break; }
+  }
+  r.ok("完整文档走到 DONE", ok && L.llmJsonComplete(ctx), JSON.stringify(ctx));
+  r.ok("DONE 后拒绝新 token", L.llmJsonStep(ctx, "}") === null, "");
+
+  const lp = [9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.04, 0.03, 0.02];
+  r.ok("pick 跳过非法高分 token", VOCAB[L.llmJsonPick(lp, VOCAB, L.llmJsonStart())] === "{",
+    VOCAB[L.llmJsonPick(lp, VOCAB, L.llmJsonStart())]);
+  const lk = [0.0, 9.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  r.ok("pick 在 KCLOSE 选字符串键", VOCAB[L.llmJsonPick(lk, VOCAB, { st: "KCLOSE", stack: [] })] === '"b"',
+    VOCAB[L.llmJsonPick(lk, VOCAB, { st: "KCLOSE", stack: [] })]);
+
+  let threw = 0;
+  try { L.llmJsonPick([1.0], VOCAB, s0); } catch (e) { threw++; }
+  try { L.llmJsonPick([1.0], ["}"], s0); } catch (e) { threw++; }
+  try { L.llmJsonPick([1.0], [{}], s0); } catch (e) { threw++; }
+  r.ok("pick 三类错误都抛", threw === 3, String(threw));
+
+  let violations = 0;
+  const rnd = L.llmSeedRng(20261108);
+  for (let trial = 0; trial < 300; trial++) {
+    let c = L.llmJsonStart();
+    for (let step = 0; step < 8; step++) {
+      const allowed = L.llmJsonAllowed(c, VOCAB);
+      if (!allowed.length) break;
+      const logits = VOCAB.map(function () { return L.llmGauss(rnd); });
+      const tok = VOCAB[L.llmJsonPick(logits, VOCAB, c)];
+      if (allowed.indexOf(tok) < 0) violations++;
+      c = L.llmJsonStep(c, tok);
+      if (c === null) { violations++; break; }
+    }
+  }
+  r.ok("随机行走 300 次无非法 token", violations === 0, String(violations));
 }

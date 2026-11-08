@@ -81,6 +81,31 @@
   - `mirostat_mu`：Mirostat 掩码（保留 `−log p ≤ mu`，并给出保留集熵），配合 `llmMirostatUpdate(mu, observed, target, strength)` 迭代。
 
 过滤器顺序写死为 **top_k → typical → top_a → eta → tail_free → top_p → min_p → mirostat**；全部留空时不调用任何过滤器，采样路径与旧版逐位相同（`tools/llm_core_test.js` 有断言）。各过滤器的保留集合与 Python `AI.typical_filter` 等用同一行 logits 的实测结果对齐（`[0.5, 2.0, -1.0, 1.0, 3.0, 0.0, -0.5, 1.5]` → typical `{1,3,4,7}`、top_a `{0,1,3,4,7}`、eta `{4}`、tail_free `{1,4,7}`、mirostat `{1,4}` 且熵 `0.582203108888218`）。
+
+### 词表级 JSON 约束解码
+
+页面同时给出一个**词表级**（token-level）的 JSON 约束解码器，等价于 Python 的
+`AI.grammar_allowed(AI.json_grammar(), prefix, vocab)`：
+
+| 函数 | 作用 |
+|---|---|
+| `llmJsonStart()` | 初始状态（期待一个顶层值） |
+| `llmJsonStep(ctx, token)` | 吃一个 token，返回新状态；非法则返回 `null` |
+| `llmJsonAllowed(ctx, vocab)` / `llmJsonMask(ctx, vocab)` | 当前允许的 token 列表 / 布尔掩码 |
+| `llmJsonPick(logits, vocab, ctx)` | 在允许集里取 logit 最大者（同分取小下标），无解则抛错 |
+| `llmJsonComplete(ctx)` | 文档是否已完整（`{"a":[1,true]}` 走完即 `true`） |
+
+state 是一个 `{ st, stack }` 对象，`stack` 记录当前嵌套的容器（`"obj"` / `"arr"`），
+所以 `st` 只有 `VAL / KCLOSE / KEY / COLON / CEND / AEND / VCLOSE / DONE` 八种。
+它是**增量**的：每来一个 token 只做一步，不需要重跑整段前缀。
+
+`tools/llm_core_test.js` 里有 15 个前缀的黄金值（同一个 15 词的词表，对照 Python
+`grammar_allowed` 的允许集合逐项一致）、完整文档走到 `DONE`、`DONE` 后再喂 token 被拒、
+`llmJsonPick` 的三条错误路径，以及「随机 logits 走 300 次从不产生非法 token」的性质抽查。
+
+边界：这是**词表级**约束——词表里的每个元素被当成一个完整 token（`"a"`、`-2.5`、`true`、
+`{` 等）。页面本身的 LLM 是**字符级**生成的，没有把这一层接到生成循环里：字符级 JSON
+需要另写一套按字符推进的语法（字符串转义、数字的整数/小数/指数分段），目前没有做。
   - `repetition_penalty`：已出现 token 的 logit 若为正则除以它，否则乘以它（`1` 关闭）。例如惩罚 `2` 会把 `2 → 1`、`-1 → -2`。
   - `presence_penalty`：每个出现过的 token 的 logit 减一次，不管出现几次（`0` 关闭）。
   - `frequency_penalty`：按出现次数扣，`logit -= frequency_penalty × 次数`（`0` 关闭）。

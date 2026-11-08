@@ -21,6 +21,8 @@ const LLM_CORE_FUNCTIONS = [
   "llmKeepMask", "llmArgmax", "llmMaskTypical", "llmMaskTopA", "llmMaskEta",
   "llmMaskTailFree", "llmMirostatFilter", "llmMirostatUpdate",
   "llmApplyFilters", "llmDraw",
+  "llmJsonStart", "llmJsonTokenKind", "llmJsonStep", "llmJsonAllowed",
+  "llmJsonMask", "llmJsonPick", "llmJsonComplete",
   "llmSampleToken", "llmGenerate", "llmPerplexity", "llmExportModel", "llmImportModel",
 ];
 

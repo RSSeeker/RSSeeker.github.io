@@ -5375,6 +5375,125 @@ function llmSampleToken(logits, temperature, topK, topP, rand, minP, filters) {
 }
 
 /* 贪心/top-k/top-p/min_p + 惩罚采样续写（topP 省略或 1.0、opts 省略 = 旧行为） */
+/* ---------- 词表级 JSON 约束解码（W7-E 的 JS 版子集） ----------
+   状态机对应 Python 的 json_grammar()：一个 JSON 文档 = 一个值，之后不能再接东西。
+   ctx = { st, stack }；stack 存「关闭当前容器后回到哪个状态」。 */
+function llmJsonStart() {
+  return { st: "VAL", stack: [] };
+}
+
+function llmJsonTokenKind(tok) {
+  if (typeof tok !== "string") return null;
+  if (tok.length >= 2 && tok.charAt(0) === '"' && tok.charAt(tok.length - 1) === '"') return "STR";
+  if (/^-?\d+(\.\d+)?$/.test(tok)) return "NUM";
+  if (tok === "true" || tok === "false" || tok === "null") return "LIT";
+  if (tok.length === 1 && "{}[]:,".indexOf(tok) >= 0) return "PUNCT";
+  return null;
+}
+
+/* 一个值结束后该期待什么：栈顶就是「当前所在的容器」。 */
+function llmJsonAfterValue(stack) {
+  if (!stack.length) return "DONE";
+  return stack[stack.length - 1] === "obj" ? "CEND" : "AEND";
+}
+
+function llmJsonStep(ctx, tok) {
+  if (!ctx || !Array.isArray(ctx.stack) || typeof ctx.st !== "string") {
+    throw new Error("llmJsonStep: ctx 必须是 llmJsonStart() 的返回值");
+  }
+  const kind = llmJsonTokenKind(tok);
+  if (kind === null) return null;
+  const st = ctx.st;
+  const stack = ctx.stack;
+  const isPunct = function (ch) { return kind === "PUNCT" && tok === ch; };
+
+  const open = function (mark) {
+    const next = stack.slice();
+    next.push(mark === "{" ? "obj" : "arr");
+    return { st: mark === "{" ? "KCLOSE" : "VCLOSE", stack: next };
+  };
+  const close = function () {
+    if (!stack.length) return null;
+    const next = stack.slice(0, stack.length - 1);
+    return { st: llmJsonAfterValue(next), stack: next };
+  };
+  const keep = function (nextSt) { return { st: nextSt, stack: stack.slice() }; };
+
+  if (st === "VAL") {
+    if (isPunct("{")) return open("{");
+    if (isPunct("[")) return open("[");
+    if (kind === "STR" || kind === "NUM" || kind === "LIT") return keep(llmJsonAfterValue(stack));
+    return null;
+  }
+  if (st === "KCLOSE") {
+    if (isPunct("}")) return close();
+    if (kind === "STR") return keep("COLON");
+    return null;
+  }
+  if (st === "KEY") {
+    if (kind === "STR") return keep("COLON");
+    return null;
+  }
+  if (st === "COLON") {
+    if (isPunct(":")) return keep("VAL");
+    return null;
+  }
+  if (st === "CEND") {
+    if (isPunct(",")) return keep("KEY");
+    if (isPunct("}")) return close();
+    return null;
+  }
+  if (st === "AEND") {
+    if (isPunct(",")) return keep("VAL");
+    if (isPunct("]")) return close();
+    return null;
+  }
+  if (st === "VCLOSE") {
+    if (isPunct("]")) return close();
+    if (isPunct("{")) return open("{");
+    if (isPunct("[")) return open("[");
+    if (kind === "STR" || kind === "NUM" || kind === "LIT") return keep(llmJsonAfterValue(stack));
+    return null;
+  }
+  return null; /* DONE */
+}
+
+function llmJsonAllowed(ctx, vocab) {
+  if (!Array.isArray(vocab)) throw new Error("llmJsonAllowed: vocab 必须是数组");
+  const out = [];
+  for (let i = 0; i < vocab.length; i++) {
+    if (llmJsonStep(ctx, vocab[i]) !== null) out.push(vocab[i]);
+  }
+  return out;
+}
+
+function llmJsonMask(ctx, vocab) {
+  const allowed = llmJsonAllowed(ctx, vocab);
+  const out = [];
+  for (let i = 0; i < vocab.length; i++) out.push(allowed.indexOf(vocab[i]) >= 0);
+  return out;
+}
+
+function llmJsonPick(logits, vocab, ctx) {
+  if (!Array.isArray(logits) || !Array.isArray(vocab)) {
+    throw new Error("llmJsonPick: logits 与 vocab 必须是数组");
+  }
+  if (logits.length !== vocab.length) {
+    throw new Error("llmJsonPick: logits 长度 " + logits.length + " 与词表 " + vocab.length + " 不一致");
+  }
+  let best = -1;
+  for (let i = 0; i < vocab.length; i++) {
+    if (llmJsonStep(ctx, vocab[i]) === null) continue;
+    if (best < 0 || logits[i] > logits[best]) best = i;
+  }
+  if (best < 0) throw new Error("llmJsonPick: 没有可用的下一个 token（前缀已无解）");
+  return best;
+}
+
+function llmJsonComplete(ctx) {
+  return ctx && ctx.st === "DONE";
+}
+
 function llmGenerate(m, ids, n, temperature, topK, rand, topP, opts) {
   const out = ids.slice();
   const gen = llmGenOptions(opts);
