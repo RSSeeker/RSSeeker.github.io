@@ -41,6 +41,21 @@
 ### 界面
 - 深色主题，响应式布局，适配手机 / 平板 / 桌面
 
+## 与 Python 仓库的同步范围
+
+页面只保留「浏览器里可以直接体验」的部分；Python 主仓库（`Python-standard-library-only-AI-main`）里新增的训练算法 / 指标 / 服务端组件不会全部搬进页面。当前同步状态：
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| 字符级 GPT 训练与生成、采样控制（惩罚 / top_k / top_p / min_p / typical / top_a / eta / tail_free / mirostat） | ✅ 已同步 | 与 Python `CausalLM` 同结构，`tools/llm_core_test.js` 逐位对拍 |
+| 前缀 KV 缓存与缓存生成（`llmForwardStep` / `llmGenerateCached`） | ✅ 已同步 | 对应 Python `PrefixCache` / `llm_generate_cached` |
+| 对比搜索、正则 / CFG / 字符级 JSON 约束解码 | ✅ 已同步 | 对应 Python `contrastive_search` / `RegexGrammar` / `CFGGrammar` / `json_grammar` |
+| 指标（METEOR / chrF / WER / CER / STOI / PESQ / LPIPS / FVD 等） | ⛔ 不引入 | 纯计算在页面里没有交互价值，Python 与 C 侧已提供 |
+| 投机解码（Medusa / EAGLE）、扩散 / Flow Matching 采样器、TTS、离线 RL、EGNN | ⛔ 暂不引入 | 需要训练出的草稿头 / 去噪网络等运行时状态，或与「分类训练器」主题无关；Python 与 C 侧已提供 |
+| ONNX 导出、训练技术（ZeRO / 梯度检查点 / FP8 等） | ⛔ 不引入 | 属训练 / 导出工具，不是页面交互能力 |
+
+同步原则：页面里出现的数值算法必须能在 `tools/` 的 Node 校验里与 Python 参考逐位或按固定容差对齐；未同步的 Python 能力以主仓库 README / ROADMAP 为准。
+
 ## 网络架构
 
 整体采用 **特征提取 + MLP 分类/回归** 的二段式结构：
