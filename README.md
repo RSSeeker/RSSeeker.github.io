@@ -54,7 +54,7 @@
 | 投机解码（Medusa / EAGLE）、扩散 / Flow Matching 采样器、TTS、离线 RL、EGNN | ⛔ 暂不引入 | 需要训练出的草稿头 / 去噪网络等运行时状态，或与「分类训练器」主题无关；Python 与 C 侧已提供 |
 | ONNX 导出、训练技术（ZeRO / 梯度检查点 / FP8 等） | ⛔ 不引入 | 属训练 / 导出工具，不是页面交互能力 |
 
-C 侧（`D:scode\AI_C`）已按同一原则分批移植上述纯计算/导出/训练模拟能力，并额外移植了 LLaMA / BERT / ViT / ELECTRA / RWKV / RetNet / xLSTM / Mamba / DeBERTa 的单向前向（权重由 Python 导出后逐位对拍）；详见该仓库 README 的「与 Python 仓库的同步范围」。
+C 侧（`D:scode\AI_C`）提供上述纯计算 / 导出 / 训练模拟能力，并实现了 LLaMA / BERT / ViT / ELECTRA / RWKV / RetNet / xLSTM / Mamba / DeBERTa 的单向前向（权重由 Python 导出后逐位对拍）；详见该仓库 README 的「与 Python 版本的功能对照」。
 
 同步原则：页面里出现的数值算法必须能在 `tools/` 的 Node 校验里与 Python 参考逐位或按固定容差对齐；未同步的 Python 能力以主仓库 README / ROADMAP 为准。
 
