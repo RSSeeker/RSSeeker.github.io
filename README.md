@@ -43,18 +43,29 @@
 
 ## 与 Python 仓库的同步范围
 
-页面只保留「浏览器里可以直接体验」的部分；Python 主仓库（`Python-standard-library-only-AI-main`）里新增的训练算法 / 指标 / 服务端组件不会全部搬进页面。当前同步状态：
+页面只保留「浏览器里可以直接体验」的部分：一个可交互的分类 / 回归训练器，加一个字符级因果语言模型面板；Python 主仓库（`Python-standard-library-only-AI-main`）的训练算法、指标套件、研究型架构与服务端 / 部署组件不会全部搬进页面。截至 Python 主仓库 HEAD `f48d02a`（`test_ai.py` 共 2597 个测试），同步状态如下。
+
+表中「✅ 已同步」的含义是：能在本页 `index.html` / `tools/` 里核对到对应实现与校验证据，且页面语言模型部分的数值由它自己的黄金基线、中心有限差分梯度与伪 DOM 集成测试守护；**它不代表与 Python 数值逐位等价**（例如页面 LLM 用 pre-LN，Python `CausalLM` 默认是 post-LN）。「⛔」表示明确不在页面范围，以 Python 主仓库 README 为准。
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
-| 字符级 GPT 训练与生成、采样控制（惩罚 / top_k / top_p / min_p / typical / top_a / eta / tail_free / mirostat） | ✅ 已同步 | 与 Python `CausalLM` 同结构，`tools/llm_core_test.js` 逐位对拍 |
-| 前缀 KV 缓存与缓存生成（`llmForwardStep` / `llmGenerateCached`） | ✅ 已同步 | 对应 Python `PrefixCache` / `llm_generate_cached` |
-| 对比搜索、正则 / CFG / 字符级 JSON 约束解码 | ✅ 已同步 | 对应 Python `contrastive_search` / `RegexGrammar` / `CFGGrammar` / `json_grammar` |
-| 指标（METEOR / chrF / WER / CER / STOI / PESQ / LPIPS / FVD 等） | ⛔ 不引入 | 纯计算在页面里没有交互价值，Python 与 C 侧已提供 |
-| 投机解码（Medusa / EAGLE）、扩散 / Flow Matching 采样器、TTS、离线 RL、EGNN | ⛔ 暂不引入 | 需要训练出的草稿头 / 去噪网络等运行时状态，或与「分类训练器」主题无关；Python 与 C 侧已提供 |
-| ONNX 导出、训练技术（ZeRO / 梯度检查点 / FP8 等） | ⛔ 不引入 | 属训练 / 导出工具，不是页面交互能力 |
+| 分类 / 回归训练器：MLP / CNN 1D / RNN / Attention 结构，SGD / Momentum / RMSProp / Adam 优化器，Dropout / L2 / He 初始化，Early Stopping，混淆矩阵 / 决策边界，JSON 存档 | ✅ 已同步 | 页面原生实现，对应 Python 的 `Layer` / `Conv1d` / `RNN` / `MultiHeadAttention` 与 `SGD` / `SGDMomentum` / `RMSprop` / `Adam`；`tools/llm_page_check.js` 只覆盖它的静态结构（脚本语法、标签配平、元素 id 契约），训练数值没有自动化对拍 |
+| 字符级 GPT：因果自注意力训练、生成、困惑度、滑动窗口、模型 JSON 存档 | ✅ 已同步 | 页面独立 JS 实现（pre-LN + 绝对位置编码 + ReLU 前馈），与 Python `CausalLM` 属同类结构但非逐位移植；`tools/llm_core_test.js` 用旧行为黄金基线与中心有限差分梯度守护页面自身的数值 |
+| 采样与过滤：温度 / top_k / top_p / min_p / typical / top_a / eta / tail_free / mirostat，重复 / 存在 / 频率惩罚，禁重复 n-gram | ✅ 已同步 | 各过滤器在同一行 logits 上的保留集合用 Python `AI.typical_filter` 等实测黄金值对齐；参数取中性值（如 `top_p = 1`）时与旧行为逐位一致 |
+| 前缀 KV 缓存：缓存结构、`llmForwardStep` 增量前向、`llmGenerateCached` 缓存生成 | ✅ 已同步 | 对应 Python `PrefixCache` / `llm_generate_cached`；JS 内缓存结果与整段重算逐位一致，`merge` / `truncate` 语义按 Python 版对齐 |
+| 对比搜索（contrastive search） | ✅ 已同步 | 对应 Python `contrastive_select` / `contrastive_search`：按候选自身隐状态算退化惩罚，`score = (1 − α)·p − α·reward`；按公式与页面断言核对，不与 Python 逐位比对 |
+| 约束解码：正则（Thompson NFA）/ CFG（Earley）/ 字符级 JSON / 词表级 JSON | ✅ 已同步 | 对应 Python `RegexGrammar` / `CFGGrammar` / `json_grammar()`；词表级的 allowed 集合有 15 组 Python 黄金值，字符级与 Python 一样不包含 JSON Schema 校验 |
+| Python `CausalLM` 的高级选项：RoPE / ABF / LongRoPE、GQA / MQA、ALiBi、SwiGLU、RMSNorm、LoRA / Prefix Tuning、MTP、FlashAttention、NSA / MoBA、线性注意力 / RingAttention、束搜索、量化 KV cache、dropout | ⛔ 未同步 | 页面只保留默认的 dense 全注意力 + 绝对位置编码 + ReLU 前馈这一最小可交互实现；这些选项在 Python 侧有实现与测试，但浏览器里没有相应的交互场景 |
+| 训练基础设施与训练技术：`Trainer` / `unwrap_model` / `benchmark_forward`、回调、梯度累积、断点续训、K 折、超参搜索、LR 扫描、配置驱动训练、梯度检查点、混合精度 / fp8、ZeRO / FSDP / 张量并行 / 序列并行模拟 | ⛔ 不引入 | 属训练编排与内存 / 分布式模拟；页面只有单模型、单进程的一轮训练循环 |
+| 指标套件：14 个基础指标（分类 / 回归 / 文本生成），以及文本 / 语音 / 视觉 / 排序 / 分割 / 聚类 / 校准 / 检测 / OOD / 公平性等扩展 | ⛔ 不引入 | 纯计算，没有交互价值；页面只显示自己的 Loss / 准确率 / 混淆矩阵 |
+| 生成模型与采样器：VAE / GAN 族 / DDPM / DDIM / Flow Matching / DiT / Score-based SDE / Glow / ProGAN / StyleGAN / CycleGAN / Pix2Pix | ⛔ 不引入 | 需要训练出的生成网络与采样状态，和页面「分类器 + 字符级语言模型」两个面板无关 |
+| RL / 偏好对齐 / 搜索与 Agent：RLHFTrainer、DPO / IPO / SimPO / CPO / ORPO / KTO、GRPO / RLOO / DAPO / GSPO、DQN / PPO、IQL / CQL、MCTS / Tree-of-Thought、ReAct / RAG / LLMSearch、PRM、Constitutional AI、test-time compute | ⛔ 不引入 | 属训练循环或 Agent 编排，单页浏览器应用无法提供有意义的交互 |
+| 研究型模型与多模态：Mamba / Jamba / Mamba-2 / RWKV / RetNet / xLSTM / DeBERTa / DETR、CLIP、WhisperLite / Wav2Vec2 / Conformer / CTC / TTS、NeRF / Gaussian Splatting、YOLOLite / PointNet、MoleculeGNN / AlphaFold-lite、EGNN / Graphormer、Neural ODE / PINN / DeepONet / FNO1d，以及时序 / 推荐 / 科学计算模型 | ⛔ 不引入 | 各自需要配套的数据管道与训练循环，不属于「浏览器里能直接体验」的两个面板 |
+| 推理侧工具与诊断：投机解码（Medusa / EAGLE）、批内打包、KV 量化（KIVI）/ Wanda 剪枝、PagedAttention 块管理、树状注意力、StreamingLLM 掩码、幻觉检测、SAE / 剪枝 / 模型合并 / 可解释性工具 | ⛔ 不引入 | 依赖草稿头、量化权重、块管理器等运行时状态，或属离线诊断工具 |
+| 工程组件：字节级 BPE / WordPiece、数据管道、MinHash / SimHash 去重、VersionedStore、Safetensors、ONNX 导出、命令行入口、模型元数据 / 实验追踪、文本水印 | ⛔ 不引入 | 文件系统 / 部署 / 导出组件，浏览器单页没有对应场景 |
+| C 侧（`AI_C`）的移植清单 | ⛔ 不在本页范围 | C 侧是独立的 C17 引擎仓库、独立的同步轨道；它已实现哪些能力以该仓库 README 的「与 Python 版本的功能对照」为准，本页不把 C 侧能力算作「页面已同步」，也不声称 C 侧已跟进到 Python `f48d02a` |
 
-C 侧（`AI_C` 仓库）提供上述纯计算 / 导出 / 训练模拟能力，并实现了 LLaMA / BERT / ViT / ELECTRA / RWKV / RetNet / xLSTM / Mamba / DeBERTa 的单向前向（权重由 Python 导出后逐位对拍）。最近同步的是 Python 主仓库新增的纯计算与结构类能力：NF4 / 双重量化、WeightStandardization、GradScaler、MoE 负载均衡、GRPO / Best-of-N / 拒绝采样 / 自洽性 / μP、稀疏自编码器 SAE、树状注意力草稿树与掩码、基于向量一致性的幻觉检测、PagedAttention 块分配器，以及 KAN（B 样条边函数层与多层模型，含前向/反向/SGD）；均为 C 实现并配 `tools/*_reference.py` + `tests/compare_*.c` 逐位或固定容差对拍。详见该仓库 README 的「与 Python 版本的功能对照」。
+C 侧（`AI_C` 仓库）的同步是另一条独立轨道，不由本仓库维护：它以 C 语言实现纯计算、导出与训练模拟类能力，并用 `tools/*_reference.py` + `tests/compare_*.c` 与 Python 参考做逐位或固定容差对拍。具体清单、未包含的部分与对拍方式见该仓库 README 的「与 Python 版本的功能对照」。
 
 同步原则：页面里出现的数值算法必须能在 `tools/` 的 Node 校验里与 Python 参考逐位或按固定容差对齐；未同步的 Python 能力以主仓库 README 为准。
 
@@ -199,7 +210,7 @@ JSON Schema 层，本库未实现」）；键去重、数字范围等语义仍�
 
 - **输入校验**：token id 必须是 `[0, 词表大小)` 内的整数，`temperature` 必须 `> 0`，`top_p` 限定在 `(0, 1]`，`min_p` 必须在 `[0, 1)`，`repetition_penalty` 必须是有限正数，`presence_penalty` / `frequency_penalty` 必须是有限数，`no_repeat_ngram_size` 必须是 `0` 或 `≥ 2` 的整数；前向算完 logits 会检查是否全部有限——权重被 NaN 污染时直接报错，而不是把 NaN loss 当正常值继续训练（那会让 Adam 把整个模型写坏）。整行被掩码掉时 `softmax` 返回全 `0` 而不是 `NaN`。
 
-这部分实现与仓库另外两个版本（Python 版 `CausalLM`、C 版 `llm.c`）是同一套结构与同一套掩码语义。
+这部分实现与仓库另外两个版本（Python 版 `CausalLM`、C 版 `llm.c`）属同一类结构、同一套因果 / 滑动窗口掩码语义；但页面用 pre-LN，Python `CausalLM` 默认是 post-LN，因此两者的数值并不逐位等价，页面也不与 Python 做端到端逐位对拍。
 
 ## 技术实现
 
