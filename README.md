@@ -136,7 +136,7 @@ C 侧（`AI_C` 仓库）的同步是另一条独立轨道，不由本仓库维�
 
 数值上与整段重算**逐位一致**（`tools/llm_core_test.js` 有 `window=0` / `window=2` 的单步对比、
 cached 与普通生成的逐 token 对比，含滑动重建场景）；速度上仍是教学实现，不做基准承诺。
-Python 与 C 版本也都有真正的 KV cache（C 侧实测 20 倍）。
+Python 版 `PrefixCache` 与 C 版 `llm.c` 的增量 KV cache 也是同一套「缓存位置与窗口重基准」语义。
 
 ### 词表级 JSON 约束解码
 
