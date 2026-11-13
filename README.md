@@ -43,7 +43,7 @@
 
 ## 与 Python 仓库的同步范围
 
-页面只保留「浏览器里可以直接体验」的部分：一个可交互的分类 / 回归训练器，加一个字符级因果语言模型面板；Python 主仓库（`Python-standard-library-only-AI-main`）的训练算法、指标套件、研究型架构与服务端 / 部署组件不会全部搬进页面。截至 Python 主仓库 HEAD `f48d02a`（`test_ai.py` 共 2597 个测试），同步状态如下。
+页面只保留「浏览器里可以直接体验」的部分：一个可交互的分类 / 回归训练器，加一个字符级因果语言模型面板；Python 主仓库（`Python-standard-library-only-AI-main`）的训练算法、指标套件、研究型架构与服务端 / 部署组件不会全部搬进页面。截至 Python 主仓库 HEAD `2d0e18c`（`test_ai.py` 共 2597 个测试；`f48d02a` 之后只有两笔文档 / 注释整理提交，能力面没有变化），同步状态如下。
 
 表中「✅ 已同步」的含义是：能在本页 `index.html` / `tools/` 里核对到对应实现与校验证据，且页面语言模型部分的数值由它自己的黄金基线、中心有限差分梯度与伪 DOM 集成测试守护；**它不代表与 Python 数值逐位等价**（例如页面 LLM 用 pre-LN，Python `CausalLM` 默认是 post-LN）。「⛔」表示明确不在页面范围，以 Python 主仓库 README 为准。
 
@@ -63,9 +63,11 @@
 | 研究型模型与多模态：Mamba / Jamba / Mamba-2 / RWKV / RetNet / xLSTM / DeBERTa / DETR、CLIP、WhisperLite / Wav2Vec2 / Conformer / CTC / TTS、NeRF / Gaussian Splatting、YOLOLite / PointNet、MoleculeGNN / AlphaFold-lite、EGNN / Graphormer、Neural ODE / PINN / DeepONet / FNO1d，以及时序 / 推荐 / 科学计算模型 | ⛔ 不引入 | 各自需要配套的数据管道与训练循环，不属于「浏览器里能直接体验」的两个面板 |
 | 推理侧工具与诊断：投机解码（Medusa / EAGLE）、批内打包、KV 量化（KIVI）/ Wanda 剪枝、PagedAttention 块管理、树状注意力、StreamingLLM 掩码、幻觉检测、SAE / 剪枝 / 模型合并 / 可解释性工具 | ⛔ 不引入 | 依赖草稿头、量化权重、块管理器等运行时状态，或属离线诊断工具 |
 | 工程组件：字节级 BPE / WordPiece、数据管道、MinHash / SimHash 去重、VersionedStore、Safetensors、ONNX 导出、命令行入口、模型元数据 / 实验追踪、文本水印 | ⛔ 不引入 | 文件系统 / 部署 / 导出组件，浏览器单页没有对应场景 |
-| C 侧（`AI_C`）的移植清单 | ⛔ 不在本页范围 | C 侧是独立的 C17 引擎仓库、独立的同步轨道；它已实现哪些能力以该仓库 README 的「与 Python 版本的功能对照」为准，本页不把 C 侧能力算作「页面已同步」，也不声称 C 侧已跟进到 Python `f48d02a` |
+| C 侧（`AI_C`）的移植清单 | ⛔ 不在本页范围 | C 侧是独立的 C17 引擎仓库、独立的同步轨道；它已实现哪些能力以该仓库 README 的「与 Python 版本的功能对照」为准，本页不把 C 侧能力算作「页面已同步」，也不声称 C 侧已完整跟进 Python 主仓库 |
 
 C 侧（`AI_C` 仓库）的同步是另一条独立轨道，不由本仓库维护：它以 C 语言实现纯计算、导出与训练模拟类能力，并用 `tools/*_reference.py` + `tests/compare_*.c` 与 Python 参考做逐位或固定容差对拍。具体清单、未包含的部分与对拍方式见该仓库 README 的「与 Python 版本的功能对照」。
+
+C 侧引擎是独立的纯 C17 实现，它最近一轮已跟进的四组能力（C 仓库提交 `abbfcc1` / `c8f8b42` / `daa8178` / `de8ddf1`）为：FIM 与 T5 span corruption（752 / 752 逐位）、QK-Norm 与 DynamicTanh（531 / 531 逐位）、ABF / LongRoPE / 2D / 3D RoPE（2324 / 2324 逐位）、线性注意力 / 长卷积（610 项检查，601 项逐位、其余在 1e-12 容差内，失败 0）。这与上表的「✅ 浏览器已同步」不是同一个概念——本页仍只实现浏览器里能直接运行的部分；C 侧其余能力是否跟进同样以其 README 为准，本页不做扩张声明。
 
 同步原则：页面里出现的数值算法必须能在 `tools/` 的 Node 校验里与 Python 参考逐位或按固定容差对齐；未同步的 Python 能力以主仓库 README 为准。
 
